@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <cmath>
 #include <cstdarg>
 #include <cstdio>
 #include <exception>
@@ -27,14 +28,24 @@
 // Platform Headers
 //
 #ifdef XR_USE_PLATFORM_WIN32
+#ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
+#endif  // !WIN32_LEAN_AND_MEAN
+
+#ifndef NOMINMAX
 #define NOMINMAX
+#endif  // !NOMINMAX
+
 #include <windows.h>
 #include <wrl/client.h>  // For Microsoft::WRL::ComPtr
 #endif
 
 #ifdef XR_USE_PLATFORM_ANDROID
+#include <android/log.h>
+#include <android_native_app_glue.h>
 #include <android/native_window.h>
+#include <jni.h>
+#include <sys/system_properties.h>
 #endif
 
 #ifdef XR_USE_PLATFORM_WAYLAND
@@ -53,10 +64,6 @@
 //
 // Graphics Headers
 //
-#ifdef XR_USE_GRAPHICS_API_D3D10
-#include <d3d10_1.h>
-#endif
-
 #ifdef XR_USE_GRAPHICS_API_D3D11
 #include <d3d11_4.h>
 #endif
@@ -74,7 +81,7 @@
 #endif
 #ifdef XR_USE_PLATFORM_WIN32
 #include <wingdi.h>  // For HGLRC
-#include <gl/GL.h>
+#include <GL/gl.h>
 #endif
 #endif
 
@@ -86,6 +93,9 @@
 #ifdef XR_USE_PLATFORM_WIN32
 #define VK_USE_PLATFORM_WIN32_KHR
 #endif
+#ifdef XR_USE_PLATFORM_ANDROID
+#define VK_USE_PLATFORM_ANDROID_KHR
+#endif
 #include <vulkan/vulkan.h>
 #endif
 
@@ -94,3 +104,4 @@
 //
 #include <openxr/openxr.h>
 #include <openxr/openxr_platform.h>
+#include <openxr/openxr_reflection.h>

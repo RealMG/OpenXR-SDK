@@ -1,4 +1,6 @@
-// Copyright (c) 2017 Collabora, Ltd.
+// Copyright (c) 2017-2019 Collabora, Ltd.
+//
+// SPDX-License-Identifier: Apache-2.0
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,7 +18,11 @@
 //
 
 // We do not need any graphics.
-#define _CRT_SECURE_NO_WARNINGS 1
+
+#if defined(_MSC_VER) && !defined(_CRT_SECURE_NO_WARNINGS)
+#define _CRT_SECURE_NO_WARNINGS
+#endif  // defined(_MSC_VER) && !defined(_CRT_SECURE_NO_WARNINGS)
+
 #include "xr_dependencies.h"
 #include <openxr/openxr.h>
 
@@ -24,33 +30,34 @@
 #include <string.h>
 #include <stdlib.h>
 #include <inttypes.h>
+#include <vector>
+
+#ifndef PRIx32
+#define PRIx32 "x"
+#endif
+#ifndef PRIx64
+#define PRIx64 "x"
+#endif
 
 // Struct that does book keeping of what a
-// OpenXr application need to keep track of.
+// OpenXR application need to keep track of.
 struct Program {
    public:
     XrInstance instance;
 
-    uint32_t numPhysDevs;
-    XrPath* physDevs;
-
    public:
-    Program() {
-        numPhysDevs = 0;
-        physDevs = nullptr;
-    }
+    Program() : instance(XR_NULL_HANDLE) {}
     ~Program() {
-        if (physDevs != NULL) {
-            free(physDevs);
-            numPhysDevs = 0;
-            physDevs = NULL;
-        }
-
         if (instance != XR_NULL_HANDLE) {
             xrDestroyInstance(instance);
             instance = XR_NULL_HANDLE;
         }
     }
+
+    Program(const Program&) = delete;
+    Program& operator=(const Program&) = delete;
+    Program(Program&&) = delete;
+    Program& operator=(Program&&) = delete;
 };
 
 // This below function is written in as close to "C style" as
@@ -95,8 +102,21 @@ int main() {
     printf("Evaluating system\n");
     printf("\t           name: '%s'\n", systemProperties.systemName);
     printf("\t       vendorId: 0x%" PRIx32 "\n", systemProperties.vendorId);
-    printf("\\t      systemId: 0x%" PRIx64 "\n", systemProperties.systemId);
+    printf("\t       systemId: 0x%" PRIx64 "\n", systemProperties.systemId);
     printf("\t     systemName: %s\n", systemProperties.systemName);
+
+    uint32_t size;
+    xrEnumerateInstanceExtensionProperties(nullptr, 0, &size, nullptr);
+    std::vector<XrExtensionProperties> extensions;
+    for (uint32_t i = 0; i < size; i++) {
+        extensions.push_back(XrExtensionProperties{XR_TYPE_EXTENSION_PROPERTIES, nullptr});
+    }
+    xrEnumerateInstanceExtensionProperties(nullptr, size, &size, extensions.data());
+
+    printf("List instance extensions\n");
+    for (XrExtensionProperties extension : extensions) {
+        printf("\t%s %d\n", extension.extensionName, extension.extensionVersion);
+    }
 
     // The program struct will do cleanup for us.
     return 0;

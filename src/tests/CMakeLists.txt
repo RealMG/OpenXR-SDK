@@ -1,5 +1,7 @@
 # Copyright (c) 2017 The Khronos Group Inc.
 #
+# SPDX-License-Identifier: Apache-2.0
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -16,6 +18,10 @@
 #
 
 add_subdirectory(list)
+if(OPENGL_FOUND AND NOT TARGET openxr-gfxwrapper)
+    return()
+endif()
+
 add_subdirectory(hello_xr)
 if(BUILD_LOADER)
 add_subdirectory(loader_test)

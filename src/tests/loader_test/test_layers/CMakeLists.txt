@@ -1,5 +1,7 @@
 # Copyright (c) 2017 The Khronos Group Inc.
 #
+# SPDX-License-Identifier: Apache-2.0
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -29,17 +31,23 @@ endforeach(OUTPUTCONFIG CMAKE_CONFIGURATION_TYPES)
 add_library(XrApiLayer_test SHARED
     layer_test.cpp
 )
+set_target_properties(XrApiLayer_test PROPERTIES FOLDER ${TESTS_FOLDER})
+
 add_dependencies(XrApiLayer_test
     xr_global_generated_files
     generate_openxr_header
     generated_layer_json_files
 )
 target_include_directories(XrApiLayer_test
-    PRIVATE ${CMAKE_SOURCE_DIR}/src
-    PRIVATE ${CMAKE_SOURCE_DIR}/src/common
-    PRIVATE ${CMAKE_BINARY_DIR}/include
-    ${Vulkan_INCLUDE_DIRS}
+    PRIVATE ${PROJECT_SOURCE_DIR}/src
+    PRIVATE ${PROJECT_SOURCE_DIR}/src/common
+    PRIVATE ${PROJECT_BINARY_DIR}/include
 )
+if(VulkanHeaders_FOUND)
+    target_include_directories(XrApiLayer_test
+        PRIVATE ${Vulkan_INCLUDE_DIRS}
+    )
+endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
     target_compile_definitions(XrApiLayer_test PRIVATE _CRT_SECURE_NO_WARNINGS)
@@ -47,7 +55,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
     # The changed behavior is that constructor initializers are now fixed to clear the struct members.
     target_compile_options(XrApiLayer_test PRIVATE "$<$<AND:$<CXX_COMPILER_ID:MSVC>,$<VERSION_LESS:$<CXX_COMPILER_VERSION>,19>>:/wd4351>")
     gen_xr_layer_json(
-        ${CMAKE_BINARY_DIR}/src/tests/loader_test/resources/layers/XrApiLayer_test.json
+        ${PROJECT_BINARY_DIR}/src/tests/loader_test/resources/layers/XrApiLayer_test.json
         test
         ${CMAKE_CURRENT_BINARY_DIR}/XrApiLayer_test.dll
         1
@@ -59,11 +67,11 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
         COMMAND ${CMAKE_COMMAND} -E copy_if_different ${DEF_FILE} ${CMAKE_CURRENT_BINARY_DIR}/XrApiLayer_test.def
         VERBATIM
     )
+	set_target_properties(copy-test-def-file PROPERTIES FOLDER ${HELPER_FOLDER})
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-    target_compile_options(XrApiLayer_test PRIVATE -Wpointer-arith -Wno-unused-function -Wno-sign-compare)
     set_target_properties(XrApiLayer_test PROPERTIES LINK_FLAGS "-Wl,-Bsymbolic,--exclude-libs,ALL")
     gen_xr_layer_json(
-        ${CMAKE_BINARY_DIR}/src/tests/loader_test/resources/layers/XrApiLayer_test.json
+        ${PROJECT_BINARY_DIR}/src/tests/loader_test/resources/layers/XrApiLayer_test.json
         test
         ${CMAKE_CURRENT_BINARY_DIR}/libXrApiLayer_test.so
         1
@@ -73,6 +81,7 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 endif()
 
 add_custom_target(generated_layer_json_files DEPENDS
-    ${CMAKE_BINARY_DIR}/src/tests/loader_test/resources/layers/XrApiLayer_test.json
+    ${PROJECT_BINARY_DIR}/src/tests/loader_test/resources/layers/XrApiLayer_test.json
 )
+set_target_properties(generated_layer_json_files PROPERTIES FOLDER ${CODEGEN_FOLDER})
 

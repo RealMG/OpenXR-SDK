@@ -1,4 +1,6 @@
-# Copyright (c) 2017-2019 The Khronos Group Inc.
+# Copyright (c) 2017-2020 The Khronos Group Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -27,65 +29,135 @@ foreach(OUTPUTCONFIG ${CMAKE_CONFIGURATION_TYPES})
 endforeach(OUTPUTCONFIG CMAKE_CONFIGURATION_TYPES)
 
 # Copy the api_layer_platform_defines.h file and place it in the binary (build) directory.
-add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/api_layer_platform_defines.h
-    COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/api_layer_platform_defines.h ${CMAKE_CURRENT_BINARY_DIR}
-    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/api_layer_platform_defines.h
-    COMMENT "Copying ${CMAKE_CURRENT_SOURCE_DIR}/api_layer_platform_defines.h to ${CMAKE_CURRENT_BINARY_DIR}"
-)
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/api_layer_platform_defines.h ${CMAKE_CURRENT_BINARY_DIR} COPYONLY)
 
 # Basics for api_dump API Layer
-add_library(XrApiLayer_api_dump SHARED
-    api_dump.cpp
-    ${CMAKE_BINARY_DIR}/src/xr_generated_dispatch_table.c
-    ${CMAKE_BINARY_DIR}/src/api_layers/xr_generated_api_dump.cpp
-)
-add_dependencies(XrApiLayer_api_dump
-    generate_openxr_header
-    xr_global_generated_files
-    api_dump_gen_files
-    api_dump_json_file
+
+gen_xr_layer_json(
+    ${CMAKE_CURRENT_BINARY_DIR}/XrApiLayer_api_dump.json
+    LUNARG_api_dump
+    $<TARGET_FILE_NAME:XrApiLayer_api_dump>
+    1
+    "API Layer to record api calls as they occur"
+    ""
 )
 
-target_include_directories(XrApiLayer_api_dump
-    PRIVATE ${CMAKE_SOURCE_DIR}/src/common
-    PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}
-    PRIVATE ${CMAKE_BINARY_DIR}/include
-    PRIVATE ${CMAKE_BINARY_DIR}/src
-    PRIVATE ${CMAKE_CURRENT_BINARY_DIR}
-    ${Vulkan_INCLUDE_DIRS}
-)
-
-# Basics for core_validation API Layer
-add_library(XrApiLayer_core_validation SHARED
-    core_validation.cpp
-    ${CMAKE_BINARY_DIR}/src/xr_generated_dispatch_table.c 
-    ${CMAKE_BINARY_DIR}/src/api_layers/xr_generated_core_validation.cpp
-)
-add_dependencies(XrApiLayer_core_validation
-    generate_openxr_header
-    xr_global_generated_files
-    core_validation_gen_files
-    core_validation_json_file
-)
-target_include_directories(XrApiLayer_core_validation
-    PRIVATE ${CMAKE_SOURCE_DIR}/src/common
-    PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}
-    PRIVATE ${CMAKE_BINARY_DIR}/include
-    PRIVATE ${CMAKE_BINARY_DIR}/src
-    PRIVATE ${CMAKE_CURRENT_BINARY_DIR}
-    ${Vulkan_INCLUDE_DIRS}
-)
-
-# Flag generated files
+# Flag generated files that aren't generated in this directory.
 set_source_files_properties(
-    ${CMAKE_BINARY_DIR}/src/xr_generated_dispatch_table.c
-    ${CMAKE_BINARY_DIR}/src/api_layers/api_layer_platform_defines.h
-    ${CMAKE_BINARY_DIR}/src/api_layers/xr_generated_api_dump.cpp
-    ${CMAKE_BINARY_DIR}/src/api_layers/xr_generated_core_validation.cpp
+    ${COMMON_GENERATED_OUTPUT}
     PROPERTIES GENERATED TRUE
 )
 
-if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+set(GENERATED_OUTPUT)
+set(GENERATED_DEPENDS)
+run_xr_xml_generate(api_dump_generator.py xr_generated_api_dump.hpp)
+run_xr_xml_generate(api_dump_generator.py xr_generated_api_dump.cpp)
+
+add_library(XrApiLayer_api_dump SHARED
+    api_dump.cpp
+    ${PROJECT_SOURCE_DIR}/src/common/hex_and_handles.h
+    # target-specific generated files
+    ${GENERATED_OUTPUT}
+
+    # Dispatch table
+    ${COMMON_GENERATED_OUTPUT}
+
+    # Included in this list to force generation
+    ${CMAKE_CURRENT_BINARY_DIR}/XrApiLayer_api_dump.json
+)
+set_target_properties(XrApiLayer_api_dump PROPERTIES FOLDER ${API_LAYERS_FOLDER})
+
+target_link_libraries(XrApiLayer_api_dump PRIVATE openxr-all-supported ${CMAKE_THREAD_LIBS_INIT})
+add_dependencies(XrApiLayer_api_dump
+    generate_openxr_header
+    xr_global_generated_files
+)
+
+target_include_directories(XrApiLayer_api_dump
+    PRIVATE
+    ${PROJECT_SOURCE_DIR}/src/common
+    ${CMAKE_CURRENT_SOURCE_DIR}
+
+    # for OpenXR headers
+    ${PROJECT_SOURCE_DIR}/include
+    ${PROJECT_BINARY_DIR}/include
+
+    # for generated dispatch table
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+    ${CMAKE_CURRENT_BINARY_DIR}/..
+
+    # for target-specific generated files
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_BINARY_DIR}
+)
+if(VulkanHeaders_FOUND)
+    target_include_directories(XrApiLayer_api_dump
+        PRIVATE ${Vulkan_INCLUDE_DIRS}
+    )
+endif()
+
+# Basics for core_validation API Layer
+
+gen_xr_layer_json(
+    ${CMAKE_CURRENT_BINARY_DIR}/XrApiLayer_core_validation.json
+    LUNARG_core_validation
+    $<TARGET_FILE_NAME:XrApiLayer_core_validation>
+    1
+    "API Layer to perform validation of api calls and parameters as they occur"
+    ""
+)
+
+set(GENERATED_OUTPUT)
+set(GENERATED_DEPENDS)
+run_xr_xml_generate(validation_layer_generator.py xr_generated_core_validation.hpp)
+run_xr_xml_generate(validation_layer_generator.py xr_generated_core_validation.cpp)
+
+add_library(XrApiLayer_core_validation SHARED
+    core_validation.cpp
+    ${PROJECT_SOURCE_DIR}/src/common/hex_and_handles.h
+    ${PROJECT_SOURCE_DIR}/src/common/object_info.cpp
+    ${PROJECT_SOURCE_DIR}/src/common/object_info.h
+
+    # target-specific generated files
+    ${GENERATED_OUTPUT}
+
+    # Dispatch table
+    ${COMMON_GENERATED_OUTPUT}
+
+    # Included in this list to force generation
+    ${CMAKE_CURRENT_BINARY_DIR}/XrApiLayer_core_validation.json
+)
+set_target_properties(XrApiLayer_core_validation PROPERTIES FOLDER ${API_LAYERS_FOLDER})
+
+target_link_libraries(XrApiLayer_core_validation PRIVATE openxr-all-supported ${CMAKE_THREAD_LIBS_INIT})
+add_dependencies(XrApiLayer_core_validation
+    generate_openxr_header
+    xr_global_generated_files
+)
+target_include_directories(XrApiLayer_core_validation
+    PRIVATE
+    ${PROJECT_SOURCE_DIR}/src/common
+
+    # for OpenXR headers
+    ${PROJECT_SOURCE_DIR}/include
+    ${PROJECT_BINARY_DIR}/include
+
+    # for generated dispatch table
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+    ${CMAKE_CURRENT_BINARY_DIR}/..
+
+    # for target-specific generated files
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_BINARY_DIR}
+
+)
+if(VulkanHeaders_FOUND)
+    target_include_directories(XrApiLayer_core_validation
+        PRIVATE ${Vulkan_INCLUDE_DIRS}
+    )
+endif()
+
+if(WIN32)
     # Windows api_dump-specific information
     target_compile_definitions(XrApiLayer_api_dump PRIVATE _CRT_SECURE_NO_WARNINGS)
     # Turn off transitional "changed behavior" warning message for Visual Studio versions prior to 2015.
@@ -97,14 +169,8 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
         COMMAND ${CMAKE_COMMAND} -E copy_if_different ${DEF_FILE} ${CMAKE_CURRENT_BINARY_DIR}/XrApiLayer_api_dump.def
         VERBATIM
     )
-    gen_xr_layer_json(
-        ${CMAKE_CURRENT_BINARY_DIR}/XrApiLayer_api_dump.json
-        api_dump
-        ${CMAKE_CURRENT_BINARY_DIR}/libXrApiLayer_api_dump.dll
-        1
-        "API Layer to record api calls as they occur"
-        ""
-    )
+	set_target_properties(copy-api_dump-def-file PROPERTIES FOLDER ${HELPER_FOLDER})
+
 
     # Windows core_validation-specific information
     target_compile_definitions(XrApiLayer_core_validation PRIVATE _CRT_SECURE_NO_WARNINGS)
@@ -117,99 +183,29 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
         COMMAND ${CMAKE_COMMAND} -E copy_if_different ${DEF_FILE} ${CMAKE_CURRENT_BINARY_DIR}/XrApiLayer_core_validation.def
         VERBATIM
     )
-    gen_xr_layer_json(
-        ${CMAKE_CURRENT_BINARY_DIR}/XrApiLayer_core_validation.json
-        core_validation
-        ${CMAKE_CURRENT_BINARY_DIR}/libXrApiLayer_core_validation.dll
-        1
-        "API Layer to record api calls as they occur"
-        ""
-    )
+	set_target_properties(copy-core_validation-def-file PROPERTIES FOLDER ${HELPER_FOLDER})
 elseif(APPLE)
     # Apple api_dump-specific information
-    target_compile_options(XrApiLayer_api_dump PRIVATE -Wpointer-arith -Wno-unused-function -Wno-sign-compare)
     set_target_properties(XrApiLayer_api_dump PROPERTIES LINK_FLAGS "-Wl")
-    gen_xr_layer_json(
-        ${CMAKE_CURRENT_BINARY_DIR}/XrApiLayer_api_dump.json
-        api_dump
-        ${CMAKE_CURRENT_BINARY_DIR}/libXrApiLayer_api_dump.dylib
-        1
-        "API Layer to record api calls as they occur"
-        ""
-    )
 
     # Apple core_validation-specific information
-    target_compile_options(XrApiLayer_core_validation PRIVATE -Wpointer-arith -Wno-unused-function -Wno-sign-compare)
     set_target_properties(XrApiLayer_core_validation PROPERTIES LINK_FLAGS "-Wl")
-    gen_xr_layer_json(
-        ${CMAKE_CURRENT_BINARY_DIR}/XrApiLayer_core_validation.json
-        core_validation
-        ${CMAKE_CURRENT_BINARY_DIR}/libXrApiLayer_core_validation.dylib
-        1
-        "API Layer to record api calls as they occur"
-        ""
-    )
-
-elseif(APPLE)
-    # Apple api_dump-specific information
-    target_compile_options(XrApiLayer_api_dump PRIVATE -Wpointer-arith -Wno-unused-function -Wno-sign-compare)
-    set_target_properties(XrApiLayer_api_dump PROPERTIES LINK_FLAGS "-Wl")
-    gen_xr_layer_json(
-        ${CMAKE_CURRENT_BINARY_DIR}/XrApiLayer_api_dump.json
-        api_dump
-        ${CMAKE_CURRENT_BINARY_DIR}/libXrApiLayer_api_dump.dylib
-        1
-        "API Layer to record api calls as they occur"
-        ""
-    )
 
 else()
     # Linux api_dump-specific information
-    target_compile_options(XrApiLayer_api_dump PRIVATE -Wpointer-arith -Wno-unused-function -Wno-sign-compare)
     set_target_properties(XrApiLayer_api_dump PROPERTIES LINK_FLAGS "-Wl,-Bsymbolic,--exclude-libs,ALL")
-    gen_xr_layer_json(
-        ${CMAKE_CURRENT_BINARY_DIR}/XrApiLayer_api_dump.json
-        api_dump
-        ${CMAKE_CURRENT_BINARY_DIR}/libXrApiLayer_api_dump.so
-        1
-        "API Layer to record api calls as they occur"
-        ""
-    )
 
     # Linux core_validation-specific information
-    target_compile_options(XrApiLayer_core_validation PRIVATE -Wpointer-arith -Wno-unused-function -Wno-sign-compare)
     set_target_properties(XrApiLayer_core_validation PROPERTIES LINK_FLAGS "-Wl,-Bsymbolic,--exclude-libs,ALL")
-    gen_xr_layer_json(
-        ${CMAKE_CURRENT_BINARY_DIR}/XrApiLayer_core_validation.json
-        core_validation
-        ${CMAKE_CURRENT_BINARY_DIR}/libXrApiLayer_core_validation.so
-        1
-        "API Layer to record api calls as they occur"
-        ""
-    )
 endif()
 
-# Final bits for api_dump API Layer
-add_custom_target(api_dump_gen_files DEPENDS
-    xr_generated_api_dump.hpp
-    xr_generated_api_dump.cpp
-)
-run_xr_xml_generate(api_dump_generator.py xr_generated_api_dump.hpp)
-run_xr_xml_generate(api_dump_generator.py xr_generated_api_dump.cpp)
-
-add_custom_target(api_dump_json_file DEPENDS
-    ${CMAKE_CURRENT_BINARY_DIR}/XrApiLayer_api_dump.json
-)
-
-# Final bits for core_validation API Layer
-add_custom_target(core_validation_gen_files DEPENDS
-    xr_generated_core_validation.hpp
-    xr_generated_core_validation.cpp
-)
-run_xr_xml_generate(validation_layer_generator.py xr_generated_core_validation.hpp)
-run_xr_xml_generate(validation_layer_generator.py xr_generated_core_validation.cpp)
-
-add_custom_target(core_validation_json_file DEPENDS
-    ${CMAKE_CURRENT_BINARY_DIR}/XrApiLayer_core_validation.json
-)
-
+# Install explicit layers on Linux
+set(TARGET_NAMES
+    XrApiLayer_api_dump
+    XrApiLayer_core_validation)
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    foreach(TARGET_NAME ${TARGET_NAMES})
+        install(FILES ${CMAKE_CURRENT_BINARY_DIR}/${TARGET_NAME}.json DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/openxr/${MAJOR}/api_layers/explicit.d)
+        install(TARGETS ${TARGET_NAME} DESTINATION ${CMAKE_INSTALL_LIBDIR})
+    endforeach()
+endif()

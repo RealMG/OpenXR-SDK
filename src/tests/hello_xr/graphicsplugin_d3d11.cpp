@@ -3,104 +3,18 @@
 #include "geometry.h"
 #include "graphicsplugin.h"
 
-#ifdef XR_USE_GRAPHICS_API_D3D11
+#if defined(XR_USE_GRAPHICS_API_D3D12) && !defined(MISSING_DIRECTX_COLORS)
 
 #include <common/xr_linear.h>
 #include <DirectXColors.h>
 #include <D3Dcompiler.h>
 
+#include "d3d_common.h"
+
 using namespace Microsoft::WRL;
 using namespace DirectX;
 
 namespace {
-struct ModelConstantBuffer {
-    XMFLOAT4X4 Model;
-};
-struct ViewProjectionConstantBuffer {
-    XMFLOAT4X4 ViewProjection;
-};
-
-// Separate entrypoints for the vertex and pixel shader functions.
-constexpr char ShaderHlsl[] = R"_(
-    struct PSVertex {
-        float4 Pos : SV_POSITION;
-        float3 Color : COLOR0;
-    };
-    struct Vertex {
-        float3 Pos : POSITION;
-        float3 Color : COLOR0;
-    };
-    cbuffer ModelConstantBuffer : register(b0) {
-        float4x4 Model;
-    };
-    cbuffer ViewProjectionConstantBuffer : register(b1) {
-        float4x4 ViewProjection;
-    };
-
-    PSVertex MainVS(Vertex input) {
-       PSVertex output;
-       output.Pos = mul(mul(float4(input.Pos, 1), Model), ViewProjection);
-       output.Color = input.Color;
-       return output;
-    }
-
-    float4 MainPS(PSVertex input) : SV_TARGET {
-        return float4(input.Color, 1);
-    }
-    )_";
-
-XMMATRIX XM_CALLCONV LoadXrPose(const XrPosef& pose) {
-    return XMMatrixAffineTransformation(DirectX::g_XMOne, DirectX::g_XMZero,
-                                        XMLoadFloat4(reinterpret_cast<const XMFLOAT4*>(&pose.orientation)),
-                                        XMLoadFloat3(reinterpret_cast<const XMFLOAT3*>(&pose.position)));
-}
-
-XMMATRIX XM_CALLCONV LoadXrMatrix(const XrMatrix4x4f& matrix) {
-    // XrMatrix4x4f has same memory layout as DirectX Math (Row-major,post-multiplied = column-major,pre-multiplied)
-    return XMLoadFloat4x4(reinterpret_cast<const XMFLOAT4X4*>(&matrix));
-}
-
-ComPtr<ID3DBlob> CompileShader(const char* hlsl, const char* entrypoint, const char* shaderTarget) {
-    ComPtr<ID3DBlob> compiled;
-    ComPtr<ID3DBlob> errMsgs;
-    DWORD flags = D3DCOMPILE_PACK_MATRIX_COLUMN_MAJOR | D3DCOMPILE_ENABLE_STRICTNESS | D3DCOMPILE_WARNINGS_ARE_ERRORS;
-
-#ifdef _DEBUG
-    flags |= D3DCOMPILE_SKIP_OPTIMIZATION | D3DCOMPILE_DEBUG;
-#else
-    flags |= D3DCOMPILE_OPTIMIZATION_LEVEL3;
-#endif
-
-    HRESULT hr = D3DCompile(hlsl, strlen(hlsl), nullptr, nullptr, nullptr, entrypoint, shaderTarget, flags, 0,
-                            compiled.GetAddressOf(), errMsgs.GetAddressOf());
-    if (FAILED(hr)) {
-        std::string errMsg((const char*)errMsgs->GetBufferPointer(), errMsgs->GetBufferSize());
-        Log::Write(Log::Level::Error, Fmt("D3DCompile failed %X: %s", hr, errMsg.c_str()));
-        THROW_HR(hr, "D3DCompile");
-    }
-
-    return compiled;
-}
-
-ComPtr<IDXGIAdapter1> GetAdapter(LUID adapterId) {
-    // Create the DXGI factory.
-    ComPtr<IDXGIFactory1> dxgiFactory;
-    CHECK_HRCMD(CreateDXGIFactory1(__uuidof(IDXGIFactory1), reinterpret_cast<void**>(dxgiFactory.ReleaseAndGetAddressOf())));
-
-    for (UINT adapterIndex = 0;; adapterIndex++) {
-        // EnumAdapters1 will fail with DXGI_ERROR_NOT_FOUND when there are no more adapters to enumerate.
-        ComPtr<IDXGIAdapter1> dxgiAdapter;
-        CHECK_HRCMD(dxgiFactory->EnumAdapters1(adapterIndex, dxgiAdapter.ReleaseAndGetAddressOf()));
-
-        DXGI_ADAPTER_DESC1 adapterDesc;
-        CHECK_HRCMD(dxgiAdapter->GetDesc1(&adapterDesc));
-        if (memcmp(&adapterDesc.AdapterLuid, &adapterId, sizeof(adapterId)) == 0) {
-            Log::Write(Log::Level::Verbose, Fmt("Using graphics adapter %ws", adapterDesc.Description));
-            return dxgiAdapter;
-        }
-    }
-}
-
 void InitializeD3D11DeviceForAdapter(IDXGIAdapter1* adapter, const std::vector<D3D_FEATURE_LEVEL>& featureLevels,
                                      ID3D11Device** device, ID3D11DeviceContext** deviceContext) {
     UINT creationFlags = D3D11_CREATE_DEVICE_BGRA_SUPPORT;
@@ -110,14 +24,24 @@ void InitializeD3D11DeviceForAdapter(IDXGIAdapter1* adapter, const std::vector<D
 #endif
 
     // Create the Direct3D 11 API device object and a corresponding context.
-    const D3D_DRIVER_TYPE driverType = adapter == nullptr ? D3D_DRIVER_TYPE_HARDWARE : D3D_DRIVER_TYPE_UNKNOWN;
-    const HRESULT hr = D3D11CreateDevice(adapter, driverType, 0, creationFlags, featureLevels.data(), (UINT)featureLevels.size(),
-                                         D3D11_SDK_VERSION, device, nullptr, deviceContext);
+    D3D_DRIVER_TYPE driverType = ((adapter == nullptr) ? D3D_DRIVER_TYPE_HARDWARE : D3D_DRIVER_TYPE_UNKNOWN);
+
+TryAgain:
+    HRESULT hr = D3D11CreateDevice(adapter, driverType, 0, creationFlags, featureLevels.data(), (UINT)featureLevels.size(),
+                                   D3D11_SDK_VERSION, device, nullptr, deviceContext);
     if (FAILED(hr)) {
-        // If the initialization fails, fall back to the WARP device.
+        // If initialization failed, it may be because device debugging isn't supported, so retry without that.
+        if ((creationFlags & D3D11_CREATE_DEVICE_DEBUG) && (hr == DXGI_ERROR_SDK_COMPONENT_MISSING)) {
+            creationFlags &= ~D3D11_CREATE_DEVICE_DEBUG;
+            goto TryAgain;
+        }
+
+        // If the initialization still fails, fall back to the WARP device.
         // For more information on WARP, see: http://go.microsoft.com/fwlink/?LinkId=286690
-        CHECK_HRCMD(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, 0, creationFlags, featureLevels.data(),
-                                      (UINT)featureLevels.size(), D3D11_SDK_VERSION, device, nullptr, deviceContext));
+        if (driverType != D3D_DRIVER_TYPE_WARP) {
+            driverType = D3D_DRIVER_TYPE_WARP;
+            goto TryAgain;
+        }
     }
 }
 
@@ -127,9 +51,13 @@ struct D3D11GraphicsPlugin : public IGraphicsPlugin {
     std::vector<std::string> GetInstanceExtensions() const override { return {XR_KHR_D3D11_ENABLE_EXTENSION_NAME}; }
 
     void InitializeDevice(XrInstance instance, XrSystemId systemId) override {
+        PFN_xrGetD3D11GraphicsRequirementsKHR pfnGetD3D11GraphicsRequirementsKHR = nullptr;
+        CHECK_XRCMD(xrGetInstanceProcAddr(instance, "xrGetD3D11GraphicsRequirementsKHR",
+                                          reinterpret_cast<PFN_xrVoidFunction*>(&pfnGetD3D11GraphicsRequirementsKHR)));
+
         // Create the D3D11 device for the adapter associated with the system.
         XrGraphicsRequirementsD3D11KHR graphicsRequirements{XR_TYPE_GRAPHICS_REQUIREMENTS_D3D11_KHR};
-        CHECK_XRCMD(xrGetD3D11GraphicsRequirementsKHR(instance, systemId, &graphicsRequirements));
+        CHECK_XRCMD(pfnGetD3D11GraphicsRequirementsKHR(instance, systemId, &graphicsRequirements));
         const ComPtr<IDXGIAdapter1> adapter = GetAdapter(graphicsRequirements.adapterLuid);
 
         // Create a list of feature levels which are both supported by the OpenXR runtime and this application.
@@ -182,7 +110,7 @@ struct D3D11GraphicsPlugin : public IGraphicsPlugin {
     }
 
     int64_t SelectColorSwapchainFormat(const std::vector<int64_t>& runtimeFormats) const override {
-        // List of supported color swapchain formats, in priority order.
+        // List of supported color swapchain formats.
         constexpr DXGI_FORMAT SupportedColorSwapchainFormats[] = {
             DXGI_FORMAT_R8G8B8A8_UNORM,
             DXGI_FORMAT_B8G8R8A8_UNORM,
@@ -191,9 +119,9 @@ struct D3D11GraphicsPlugin : public IGraphicsPlugin {
         };
 
         auto swapchainFormatIt =
-            std::find_first_of(std::begin(SupportedColorSwapchainFormats), std::end(SupportedColorSwapchainFormats),
-                               runtimeFormats.begin(), runtimeFormats.end());
-        if (swapchainFormatIt == std::end(SupportedColorSwapchainFormats)) {
+            std::find_first_of(runtimeFormats.begin(), runtimeFormats.end(), std::begin(SupportedColorSwapchainFormats),
+                               std::end(SupportedColorSwapchainFormats));
+        if (swapchainFormatIt == runtimeFormats.end()) {
             THROW("No runtime swapchain format supported for color swapchain");
         }
 
@@ -228,7 +156,7 @@ struct D3D11GraphicsPlugin : public IGraphicsPlugin {
             return depthBufferIt->second;
         }
 
-        // This back-buffer has no cooresponding depth-stencil texture, so create one with matching dimensions.
+        // This back-buffer has no corresponding depth-stencil texture, so create one with matching dimensions.
         D3D11_TEXTURE2D_DESC colorDesc;
         colorTexture->GetDesc(&colorDesc);
 

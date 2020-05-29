@@ -16,6 +16,8 @@ LICENSE
 Copyright (c) 2016 Oculus VR, LLC.
 Portions of macOS, iOS, functionality copyright (c) 2016 The Brenwill Workshop Ltd.
 
+SPDX-License-Identifier: Apache-2.0
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
@@ -186,7 +188,7 @@ Platform headers / declarations
 #elif defined(OS_LINUX)
 
 #define OPENGL_VERSION_MAJOR 4
-#define OPENGL_VERSION_MINOR 3
+#define OPENGL_VERSION_MINOR 5
 #define GLSL_VERSION "430"
 #define SPIRV_VERSION "99"
 #define USE_SYNC_OBJECT 0  // 0 = GLsync, 1 = EGLSyncKHR, 2 = storage buffer
@@ -315,8 +317,8 @@ CGLError CGLUpdateContext(CGLContextObj ctx);
 #elif defined(OS_ANDROID)
 
 #define OPENGL_VERSION_MAJOR 3
-#define OPENGL_VERSION_MINOR 1
-#define GLSL_VERSION "310 es"
+#define OPENGL_VERSION_MINOR 2
+#define GLSL_VERSION "320 es"
 #define SPIRV_VERSION "99"
 #define USE_SYNC_OBJECT 1  // 0 = GLsync, 1 = EGLSyncKHR, 2 = storage buffer
 
@@ -336,10 +338,15 @@ CGLError CGLUpdateContext(CGLContextObj ctx);
 #include <android_native_app_glue.h>
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
+#include <GLES2/gl2.h>
 #include <GLES2/gl2ext.h>
 #include <GLES3/gl3.h>
-#if OPENGL_VERSION_MAJOR == 3 && OPENGL_VERSION_MINOR == 1
+#if OPENGL_VERSION_MAJOR == 3
+#if OPENGL_VERSION_MINOR == 1
 #include <GLES3/gl31.h>
+#elif OPENGL_VERSION_MINOR == 2
+#include <GLES3/gl32.h>
+#endif
 #endif
 #include <GLES3/gl3ext.h>
 #include <GL/gl_format.h>
@@ -488,7 +495,7 @@ extern PFNGLDELETEBUFFERSPROC glDeleteBuffers;
 extern PFNGLBINDBUFFERPROC glBindBuffer;
 extern PFNGLBINDBUFFERBASEPROC glBindBufferBase;
 extern PFNGLBUFFERDATAPROC glBufferData;
-extern PFNGLBUFFERSUBDATAARBPROC glBufferSubData;
+extern PFNGLBUFFERSUBDATAPROC glBufferSubData;
 extern PFNGLBUFFERSTORAGEPROC glBufferStorage;
 extern PFNGLMAPBUFFERPROC glMapBuffer;
 extern PFNGLMAPBUFFERRANGEPROC glMapBufferRange;
@@ -658,7 +665,9 @@ extern PFNGLFRAMEBUFFERTEXTURE2DMULTISAMPLEEXTPROC glFramebufferTexture2DMultisa
 // GL_OVR_multiview_multisampled_render_to_texture
 extern PFNGLFRAMEBUFFERTEXTUREMULTISAMPLEMULTIVIEWOVRPROC glFramebufferTextureMultisampleMultiviewOVR;
 
+#ifndef GL_ES_VERSION_3_2
 extern PFNGLTEXSTORAGE3DMULTISAMPLEPROC glTexStorage3DMultisample;
+#endif
 
 #if !defined(EGL_OPENGL_ES3_BIT)
 #define EGL_OPENGL_ES3_BIT 0x0040
@@ -863,7 +872,7 @@ typedef struct {
     unsigned char depthBits;
 } ksGpuSurfaceBits;
 
-bool ksGpuContext_CreateShared(ksGpuContext *context, const ksGpuContext *other, const int queueIndex);
+bool ksGpuContext_CreateShared(ksGpuContext *context, const ksGpuContext *other, int queueIndex);
 void ksGpuContext_Destroy(ksGpuContext *context);
 void ksGpuContext_WaitIdle(ksGpuContext *context);
 void ksGpuContext_SetCurrent(ksGpuContext *context);
@@ -992,13 +1001,13 @@ typedef struct {
 #endif
 } ksGpuWindow;
 
-bool ksGpuWindow_Create(ksGpuWindow *window, ksDriverInstance *instance, const ksGpuQueueInfo *queueInfo, const int queueIndex,
-                        const ksGpuSurfaceColorFormat colorFormat, const ksGpuSurfaceDepthFormat depthFormat,
-                        const ksGpuSampleCount sampleCount, const int width, const int height, const bool fullscreen);
+bool ksGpuWindow_Create(ksGpuWindow *window, ksDriverInstance *instance, const ksGpuQueueInfo *queueInfo, int queueIndex,
+                        ksGpuSurfaceColorFormat colorFormat, ksGpuSurfaceDepthFormat depthFormat, ksGpuSampleCount sampleCount,
+                        int width, int height, bool fullscreen);
 void ksGpuWindow_Destroy(ksGpuWindow *window);
 void ksGpuWindow_Exit(ksGpuWindow *window);
 ksGpuWindowEvent ksGpuWindow_ProcessEvents(ksGpuWindow *window);
-void ksGpuWindow_SwapInterval(ksGpuWindow *window, const int swapInterval);
+void ksGpuWindow_SwapInterval(ksGpuWindow *window, int swapInterval);
 void ksGpuWindow_SwapBuffers(ksGpuWindow *window);
 ksNanoseconds ksGpuWindow_GetNextSwapTimeNanoseconds(ksGpuWindow *window);
 ksNanoseconds ksGpuWindow_GetFrameTimeNanoseconds(ksGpuWindow *window);

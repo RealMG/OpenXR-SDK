@@ -1,6 +1,8 @@
-// Copyright (c) 2018-2019 The Khronos Group Inc.
+// Copyright (c) 2018-2020 The Khronos Group Inc.
 // Copyright (c) 2018-2019 Valve Corporation
 // Copyright (c) 2018-2019 LunarG, Inc.
+//
+// SPDX-License-Identifier: Apache-2.0
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -43,6 +45,6 @@
 #define XR_USE_GRAPHICS_API_METAL 1   // Metal exists
 #endif                                // XR_OS_APPLE_MACOS
 
-#include "xr_dependencies.h"
+#include "xr_dependencies.h"  // IWYU pragma: export
 
 #endif  // API_LAYER_PLATFORM_DEFINES_H_

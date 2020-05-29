@@ -2,6 +2,8 @@
 #
 # Copyright (c) 2018-2019 Collabora, Ltd.
 #
+# SPDX-License-Identifier: Apache-2.0
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -20,7 +22,7 @@
 
 import pytest
 
-from check_spec_links import MacroChecker, MessageId, makeMacroChecker
+from check_spec_links import MessageId, makeMacroChecker
 from spec_tools.console_printer import ConsolePrinter
 from spec_tools.macro_checker_file import shouldEntityBeText
 
@@ -36,7 +38,7 @@ class CheckerWrapper(object):
     Intended for use in making test assertions shorter and easier to read."""
 
     def __init__(self, capsys):
-        self.ckr = makeMacroChecker(set([]))
+        self.ckr = makeMacroChecker(set())
         self.capsys = capsys
 
     def enabled(self, enabled_messages):
@@ -50,7 +52,10 @@ class CheckerWrapper(object):
         # Flush the captured output.
         _ = self.capsys.readouterr()
 
+        # Process
         f = self.ckr.processString(string + '\n')
+
+        # Dump messages
         ConsolePrinter().output(f)
         return f
 
@@ -454,7 +459,7 @@ def test_refpage_xref_dupe(ckr):
 def test_REFPAGE_WHITESPACE(ckr):
     """Check the REFPAGE_WHITESPACE message."""
     ckr.enabled([MessageId.REFPAGE_WHITESPACE])
-    # Should not error: no extra whitspace
+    # Should not error: no extra whitespace
     assert(not ckr.check("[open,xrefs='']").messages)
     assert(not ckr.check("[open,xrefs='123']").messages)
     assert(not ckr.check("[open,xrefs='abc 123']").messages)

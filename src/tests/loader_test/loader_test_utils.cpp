@@ -1,6 +1,8 @@
-// Copyright (c) 2017 The Khronos Group Inc.
-// Copyright (c) 2017 Valve Corporation
-// Copyright (c) 2017 LunarG, Inc.
+// Copyright (c) 2017-2020 The Khronos Group Inc.
+// Copyright (c) 2017-2019 Valve Corporation
+// Copyright (c) 2017-2019 LunarG, Inc.
+//
+// SPDX-License-Identifier: Apache-2.0
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,12 +17,14 @@
 // limitations under the License.
 //
 // Author: Mark Young <marky@lunarg.com>
+// Author: Dave Houlton <daveh@lunarg.com>
 //
 
+#ifdef XR_USE_GRAPHICS_API_OPENGL
 #include "gfxwrapper_opengl.h"  // for GL Extensions
-#include "loader_test_utils.hpp"
+#endif
 
-#define XR_USE_GRAPHICS_API_OPENGL 1
+#include "loader_test_utils.hpp"
 #include "xr_dependencies.h"
 #include <openxr/openxr.h>
 
@@ -51,10 +55,7 @@ bool LoaderTestUnsetEnvironmentVariable(const std::string &variable) {
 #elif defined(XR_OS_LINUX)
 
 bool LoaderTestSetEnvironmentVariable(const std::string &variable, const std::string &value) {
-    if (0 == setenv(variable.c_str(), value.c_str(), 1)) {
-        return true;
-    }
-    return false;
+    return 0 == setenv(variable.c_str(), value.c_str(), 1);
 }
 
 bool LoaderTestGetEnvironmentVariable(const std::string &variable, std::string &value) {
@@ -66,12 +67,7 @@ bool LoaderTestGetEnvironmentVariable(const std::string &variable, std::string &
     return true;
 }
 
-bool LoaderTestUnsetEnvironmentVariable(const std::string &variable) {
-    if (0 == unsetenv(variable.c_str())) {
-        return true;
-    }
-    return false;
-}
+bool LoaderTestUnsetEnvironmentVariable(const std::string &variable) { return 0 == unsetenv(variable.c_str()); }
 
 #elif defined(XR_OS_APPLE)
 

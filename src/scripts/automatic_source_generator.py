@@ -1,8 +1,10 @@
 #!/usr/bin/python3 -i
 #
-# Copyright (c) 2017-2019 The Khronos Group Inc.
+# Copyright (c) 2017-2020 The Khronos Group Inc.
 # Copyright (c) 2017-2019 Valve Corporation
 # Copyright (c) 2017-2019 LunarG, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -22,18 +24,25 @@
 #               registry and forming the information in an easy to use
 #               way for the rest of the automatic source generation scripts.
 
-import os
 import re
-import sys
-from generator import *
 from collections import namedtuple
 from inspect import currentframe, getframeinfo
 
-# AutomaticSourceGeneratorOptions - subclass of GeneratorOptions.
+from generator import (GeneratorOptions, OutputGenerator, noneStr,
+                       regSortFeatures, write)
+
+
+def undecorate(name):
+    """Undecorate a name by removing the leading Xr and making it lowercase."""
+    lower = name.lower()
+    assert(lower.startswith('xr'))
+    return lower[2:]
 
 
 class AutomaticSourceGeneratorOptions(GeneratorOptions):
+    """AutomaticSourceGeneratorOptions - subclass of GeneratorOptions."""
     def __init__(self,
+                 conventions=None,
                  filename=None,
                  directory='.',
                  apiname=None,
@@ -58,10 +67,19 @@ class AutomaticSourceGeneratorOptions(GeneratorOptions):
                  indentFuncPointer=False,
                  alignFuncParam=0,
                  genEnumBeginEndRange=False):
-        GeneratorOptions.__init__(self, filename, directory, apiname, profile,
-                                  versions, emitversions, defaultExtensions,
-                                  addExtensions, removeExtensions,
-                                  emitExtensions, sortProcedure)
+        GeneratorOptions.__init__(self,
+                                  conventions=conventions,
+                                  filename=filename,
+                                  directory=directory,
+                                  apiname=apiname,
+                                  profile=profile,
+                                  versions=versions,
+                                  emitversions=emitversions,
+                                  defaultExtensions=defaultExtensions,
+                                  addExtensions=addExtensions,
+                                  removeExtensions=removeExtensions,
+                                  emitExtensions=emitExtensions,
+                                  sortProcedure=sortProcedure)
         # Instead of using prefixText, we write our own
         self.prefixText = None
         self.genFuncPointers = genFuncPointers
@@ -83,11 +101,8 @@ class AutomaticSourceGeneratorOptions(GeneratorOptions):
 class AutomaticSourceOutputGenerator(OutputGenerator):
     """Parse source based on XML element attributes from registry"""
 
-    def __init__(self,
-                 errFile=sys.stderr,
-                 warnFile=sys.stderr,
-                 diagFile=sys.stdout):
-        OutputGenerator.__init__(self, errFile, warnFile, diagFile)
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
         # ** Global types for automatic source generation **
         # Length Member data
@@ -205,6 +220,8 @@ class AutomaticSourceOutputGenerator(OutputGenerator):
                                           'has_instance',
                                           # Type of return (or None)
                                           'return_type',
+                                          # Documented return values (core only)
+                                          'return_values',
                                           # List of MemberOrParam for each parameter in this command
                                           'params',
                                           # None or a comma-delimited list indicating #define values to use around this command
@@ -234,8 +251,7 @@ class AutomaticSourceOutputGenerator(OutputGenerator):
                                               # None or a comma-delimited list indicating #define values to use around this structure/union
                                               'protect_value',
                                               # Empty string or string to use after #if to protect this structure/union
-                                              'protect_string'
-                                              ])
+                                              'protect_string'])
         # Information on a given extension
         self.ExtensionData = namedtuple('ExtensionData',
                                         [  # Name of this extension (ex. XR_EXT_foo)
@@ -333,6 +349,9 @@ class AutomaticSourceOutputGenerator(OutputGenerator):
         self.max_structure_type_length = 32
         self.max_result_length = 32
         self.structs_with_no_type = ['XrBaseInStructure', 'XrBaseOutStructure']
+        # The following commands should only exist in the loader, and only as a trampoline
+        # (i.e. Don't add it to the dispatch table)
+        self.no_trampoline_or_terminator = ['xrEnumerateApiLayerProperties', 'xrEnumerateInstanceExtensionProperties']
 
     # This is the basic warning about the source file being generated.  It can be
     # overridden by a derived class.
@@ -409,29 +428,31 @@ class AutomaticSourceOutputGenerator(OutputGenerator):
     # overridden by a derived class.
     #   self            the AutomaticSourceOutputGenerator object
     def outputCopywriteHeader(self):
-        copyright = '// Copyright (c) 2017-2019 The Khronos Group Inc.\n'
-        copyright += '// Copyright (c) 2017-2019 Valve Corporation\n'
-        copyright += '// Copyright (c) 2017-2019 LunarG, Inc.\n'
-        copyright += '//\n'
-        copyright += '// Licensed under the Apache License, Version 2.0 (the "License");\n'
-        copyright += '// you may not use this file except in compliance with the License.\n'
-        copyright += '// You may obtain a copy of the License at\n'
-        copyright += '//\n'
-        copyright += '//     http://www.apache.org/licenses/LICENSE-2.0\n'
-        copyright += '//\n'
-        copyright += '// Unless required by applicable law or agreed to in writing, software\n'
-        copyright += '// distributed under the License is distributed on an "AS IS" BASIS,\n'
-        copyright += '// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n'
-        copyright += '// See the License for the specific language governing permissions and\n'
-        copyright += '// limitations under the License.'
-        write(copyright, file=self.outFile)
+        notice = '// Copyright (c) 2017-2020 The Khronos Group Inc.\n'
+        notice += '// Copyright (c) 2017-2019 Valve Corporation\n'
+        notice += '// Copyright (c) 2017-2019 LunarG, Inc.\n'
+        notice += '//\n'
+        notice += '// SPDX-License-Identifier: Apache-2.0\n'
+        notice += '//\n'
+        notice += '// Licensed under the Apache License, Version 2.0 (the "License");\n'
+        notice += '// you may not use this file except in compliance with the License.\n'
+        notice += '// You may obtain a copy of the License at\n'
+        notice += '//\n'
+        notice += '//     http://www.apache.org/licenses/LICENSE-2.0\n'
+        notice += '//\n'
+        notice += '// Unless required by applicable law or agreed to in writing, software\n'
+        notice += '// distributed under the License is distributed on an "AS IS" BASIS,\n'
+        notice += '// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n'
+        notice += '// See the License for the specific language governing permissions and\n'
+        notice += '// limitations under the License.'
+        write(notice, file=self.outFile)
 
     # Called once at the beginning of each run.  Starts writing to the output
     # file, including the header warning and copyright.
     #   self            the AutomaticSourceOutputGenerator object
     #   gen_opts        the AutomaticSourceGeneratorOptions object
-    def beginFile(self, gen_opts):
-        OutputGenerator.beginFile(self, gen_opts)
+    def beginFile(self, genOpts):
+        OutputGenerator.beginFile(self, genOpts)
 
         # Iterate over all 'tag' Elements and add the names of all the valid vendor
         # tags to the list
@@ -440,8 +461,8 @@ class AutomaticSourceOutputGenerator(OutputGenerator):
             self.vendor_tags.append(tag.get('name'))
 
         # User-supplied prefix text, if any (list of strings)
-        if (gen_opts.prefixText):
-            for s in gen_opts.prefixText:
+        if genOpts.prefixText:
+            for s in genOpts.prefixText:
                 write(s, file=self.outFile)
         self.outputGeneratedHeaderWarning()
         self.outputCopywriteHeader()
@@ -454,6 +475,9 @@ class AutomaticSourceOutputGenerator(OutputGenerator):
         self.outputErrorIfNeeded()
         # Finish processing in superclass
         OutputGenerator.endFile(self)
+
+        if self.encountered_error:
+            exit(-1)
 
     # This is called for the beginning of each API feature.  Each feature includes a set of
     # API types, commands, etc.  Each feature is identified by a name, this includes the API
@@ -544,8 +568,8 @@ class AutomaticSourceOutputGenerator(OutputGenerator):
     #   self            the AutomaticSourceOutputGenerator object
     #   cmd_info        the XML information for this command
     #   name            the name of the command
-    def genCmd(self, cmd_info, name):
-        OutputGenerator.genCmd(self, cmd_info, name)
+    def genCmd(self, cmd_info, name, alias):
+        OutputGenerator.genCmd(self, cmd_info, name, alias)
 
         self.num_commands = self.num_commands + 1
         self.addCommandToDispatchList(
@@ -556,13 +580,13 @@ class AutomaticSourceOutputGenerator(OutputGenerator):
     #   self            the AutomaticSourceOutputGenerator object
     #   cmd_info        the XML information for this group
     #   name            the name of the group
-    def genGroup(self, group_info, name):
-        OutputGenerator.genGroup(self, group_info, name)
+    def genGroup(self, group_info, name, alias):
+        OutputGenerator.genGroup(self, group_info, name, alias)
         group_type = group_info.elem.get('type')
         group_supported = group_info.elem.get('supported') != 'disabled'
         is_extension = not self.isCoreExtensionName(self.currentExtension)
         # We really only care to handle enum or bitmask values here
-        if group_supported and ('enum' == group_type or 'bitmask' == group_type):
+        if group_supported and group_type in ('enum', 'bitmask'):
             values = []
             (top_protect_value, top_protect_string) = self.genProtectInfo(
                 self.featureExtraProtect, group_info.elem.get('protect'))
@@ -573,7 +597,7 @@ class AutomaticSourceOutputGenerator(OutputGenerator):
                     (enum_protect_value, enum_protect_string) = self.genProtectInfo(
                         self.featureExtraProtect, elem.get('protect'))
                     elem_name = elem.get('name')
-                            # TODO this variable is never read
+                    # TODO this variable is never read
                     if is_extension and not elem_name.endswith(self.current_vendor_tag):
                         self.printCodeGenErrorMessage('Enum value %s in XML (for extension %s) does'
                                                       ' not end with the expected vendor tag \"%s\"' % (
@@ -587,7 +611,7 @@ class AutomaticSourceOutputGenerator(OutputGenerator):
                             protect_value=enum_protect_value,
                             protect_string=enum_protect_string,
                             ext_name=extension_to_check))
-            if 'enum' == group_type:
+            if group_type == 'enum':
                 if is_extension and not name.endswith(self.current_vendor_tag):
                     self.printCodeGenErrorMessage('Enum %s in XML (for extension %s) does not end'
                                                   ' with the expected vendor tag \"%s\"' % (
@@ -618,7 +642,7 @@ class AutomaticSourceOutputGenerator(OutputGenerator):
                     (protect_value, protect_string) = self.genProtectInfo(
                         self.featureExtraProtect, elem.get('protect'))
                     item_name = elem.get('name')
-                    if None != item_name:
+                    if item_name is not None:
                         if is_extension and not item_name.endswith(self.current_vendor_tag):
                             self.printCodeGenErrorMessage('XrResult %s in XML (for extension %s) does'
                                                           ' not end with the expected vendor tag \"%s\"' % (
@@ -639,7 +663,7 @@ class AutomaticSourceOutputGenerator(OutputGenerator):
                     (protect_value, protect_string) = self.genProtectInfo(
                         self.featureExtraProtect, elem.get('protect'))
                     item_name = elem.get('name')
-                    if None != item_name:
+                    if item_name is not None:
                         if is_extension and not item_name.endswith(self.current_vendor_tag):
                             self.printCodeGenErrorMessage('ObjectType %s in XML (for extension %s) does'
                                                           ' not end with the expected vendor tag \"%s\"' % (
@@ -656,7 +680,7 @@ class AutomaticSourceOutputGenerator(OutputGenerator):
                     (protect_value, protect_string) = self.genProtectInfo(
                         self.featureExtraProtect, elem.get('protect'))
                     item_name = elem.get('name')
-                    if None != item_name:
+                    if item_name is not None:
                         if len(item_name) + 1 > self.max_structure_type_length:
                             self.printCodeGenErrorMessage('StructureType %s length %d in XML (for'
                                                           ' extension %s) is greater than allowable'
@@ -673,50 +697,41 @@ class AutomaticSourceOutputGenerator(OutputGenerator):
                                 protect_value=protect_value,
                                 protect_string=protect_string))
 
-    # Get the category of a type
-    #   self            the AutomaticSourceOutputGenerator object
-    #   type_name       the name of the type to evaluate
-    def getTypeCategory(self, type_name):
-        types = self.registry.tree.findall("types/type")
-        for elem in types:
-            if (elem.find("name") is not None and elem.find('name').text == type_name) or elem.attrib.get('name') == type_name:
-                return elem.attrib.get('category')
-
     # Retrieve the type and name for a parameter
     #   self            the AutomaticSourceOutputGenerator object
     #   param           the XML parameter information to access
     def getTypeNameTuple(self, param):
-        type = ''
+        typename = ''
         name = ''
         for elem in param:
             if elem.tag == 'type':
-                type = noneStr(elem.text)
+                typename = noneStr(elem.text)
             elif elem.tag == 'name':
                 name = noneStr(elem.text)
-        return (type, name)
+        return (typename, name)
 
     # Retrieve the type, name, and enum for a parameter
     #   self            the AutomaticSourceOutputGenerator object
     #   param           the XML parameter information to access
     def getTypeNameEnumTuple(self, param):
-        type = ''
+        typename = ''
         name = ''
         enum = ''
         for elem in param:
             if elem.tag == 'type':
-                type = noneStr(elem.text)
+                typename = noneStr(elem.text)
             elif elem.tag == 'name':
                 name = noneStr(elem.text)
             elif elem.tag == 'enum':
                 enum = noneStr(elem.text)
-        return (type, name, enum)
+        return (typename, name, enum)
 
     # Retrieve the value of the len tag
     #   self            the AutomaticSourceOutputGenerator object
     #   param           the XML parameter information to access
     def getLen(self, param):
         result = None
-        len_attrib = param.attrib.get('len')
+        len_attrib = param.get('len')
         if len_attrib and len_attrib != 'null-terminated':
             # For string arrays, 'len' can look like 'count,null-terminated',
             # indicating that we have a null terminated array of strings.  We
@@ -734,20 +749,20 @@ class AutomaticSourceOutputGenerator(OutputGenerator):
     #   self            the AutomaticSourceOutputGenerator object
     #   type_info       the XML information for this type
     #   type_name       the name of this type
-    def genType(self, type_info, type_name):
-        OutputGenerator.genType(self, type_info, type_name)
+    def genType(self, type_info, type_name, alias):
+        OutputGenerator.genType(self, type_info, type_name, alias)
         type_elem = type_info.elem
         type_category = type_elem.get('category')
-        (protect_value, protect_string) = self.genProtectInfo(
+        protect_value, protect_string = self.genProtectInfo(
             self.featureExtraProtect, type_elem.get('protect'))
         has_proper_ending = True
         if not self.isCoreExtensionName(self.currentExtension) and not type_name.endswith(self.current_vendor_tag):
             has_proper_ending = False
-        if type_category == 'struct' or type_category == 'union':
+        if type_category in ('struct', 'union'):
             if not has_proper_ending:
                 self.printCodeGenErrorMessage('Struct/union %s in XML (for extension %s) does not end with the expected vendor tag \"%s\"' % (
                     type_name, self.currentExtension, self.current_vendor_tag))
-            self.genStructUnion(type_info, type_category, type_name)
+            self.genStructUnion(type_info, type_category, type_name, alias)
         elif type_category == 'handle':
             if not has_proper_ending:
                 self.printCodeGenErrorMessage('Handle %s in XML (for extension %s) does not end with the expected vendor tag \"%s\"' % (
@@ -806,7 +821,8 @@ class AutomaticSourceOutputGenerator(OutputGenerator):
     #   self            the AutomaticSourceOutputGenerator object
     #   enum_info       the XML information for this enum
     #   name            the name of this enum
-    def genEnum(self, enum_info, name):
+    def genEnum(self, enum_info, name, alias):
+        OutputGenerator.genEnum(self, enum_info, name, alias)
         if name == 'XR_MAX_EXTENSION_NAME_SIZE':
             self.max_extension_name_length = int(enum_info.elem.get('value'))
         if name == 'XR_MAX_STRUCTURE_NAME_SIZE':
@@ -854,9 +870,9 @@ class AutomaticSourceOutputGenerator(OutputGenerator):
     #   type_info       the XML information for this type
     #   type_category   the category of this type.  In this case 'union' or 'struct'.
     #   type_name       the name of this type
-
-    def genStructUnion(self, type_info, type_category, type_name):
-        OutputGenerator.genStruct(self, type_info, type_name)
+    #
+    def genStructUnion(self, type_info, type_category, type_name, alias):
+        OutputGenerator.genStruct(self, type_info, type_name, alias)
         is_union = type_category == 'union'
         (protect_value, protect_string) = self.genProtectInfo(
             self.featureExtraProtect, type_info.elem.get('protect'))
@@ -866,19 +882,18 @@ class AutomaticSourceOutputGenerator(OutputGenerator):
             ext_names = type_info.elem.get('extname')
             required_exts.extend(ext_names.split(','))
         returned_only = False
-        if type_info.elem.get('returnedonly') != None and type_info.elem.get('returnedonly') == "true":
+        if type_info.elem.get('returnedonly') is not None and type_info.elem.get('returnedonly') == "true":
             returned_only = True
 
         # Search through the members to determine all the array lengths
         arraylengths = []
         for member in members:
             membername = member.find('name')
-            arraylength = member.attrib.get('len')
+            arraylength = member.get('len')
             if arraylength is not None:
-                for onelength in arraylength.split(','):
-                    if 'null-terminated' not in onelength:
-                        arraylengths.append(self.LengthMember(array_name=membername.text,
-                                                              length_name=onelength))
+                arraylengths = [self.LengthMember(array_name=membername.text,length_name=onelength)
+                    for onelength in arraylength.split(',')
+                    if 'null-terminated' not in onelength]
 
         # Generate member info
         members_info = []
@@ -891,7 +906,7 @@ class AutomaticSourceOutputGenerator(OutputGenerator):
 
             # Initialize some flags about this member
             static_array_sizes = []
-            no_auto_validity = True if member.attrib.get(
+            no_auto_validity = True if member.get(
                 'noautovalidity') else False
             is_optional = True if (self.paramIsOptional(
                 member) or (member_name == 'next')) else False
@@ -902,7 +917,7 @@ class AutomaticSourceOutputGenerator(OutputGenerator):
             array_name_for_length = ''
             pointer_count_var = ''
             is_null_terminated = False
-            member_values = member.attrib.get('values')
+            member_values = member.get('values')
 
             # Determine if this is an array length member
             for arraylength in arraylengths:
@@ -910,9 +925,8 @@ class AutomaticSourceOutputGenerator(OutputGenerator):
                     array_name_for_length = arraylength.array_name
                     break
             # Determine if this is a null-terminated array
-            if member and member.attrib and member.attrib.get('len'):
-                is_null_terminated = 'null-terminated' in member.attrib.get(
-                    'len')
+            if member is not None and member.get('len'):
+                is_null_terminated = 'null-terminated' in member.get('len')
             cdecl = self.makeCParamDecl(member, 0)
             is_const = True if 'const' in cdecl else False
             pointer_count = self.paramPointerCount(
@@ -926,19 +940,19 @@ class AutomaticSourceOutputGenerator(OutputGenerator):
 
             # If the enum field is there, then this is an array with an enum
             # static size.
-            if '' != member_enum:
+            if member_enum:
                 is_array = True
                 array_count_var = member_enum
 
             # If this member has a "len" tag, then it is a pointer to an array
             # with a restricted length.
-            if member.attrib.get('len'):
+            if member.get('len'):
                 is_array = True
 
                 # Get the name of the variable to use for the count.  Many times,
                 # the length also includes a "null-terminated" descriptor which
                 # we want to strip here.
-                pointer_count_var = noneStr(member.attrib.get('len'))
+                pointer_count_var = noneStr(member.get('len'))
                 null_term_loc = pointer_count_var.lower().rfind('null-terminated')
                 if null_term_loc == 0:
                     null_term_len = len("null-terminated")
@@ -1009,8 +1023,9 @@ class AutomaticSourceOutputGenerator(OutputGenerator):
                     members_match = True
                     # Third, the first 'n' elements must match in name and type
                     for mem in range(base_member_count):
-                        if (members_info[mem].name != generic_struct.members[mem].name or
-                                members_info[mem].type != generic_struct.members[mem].type):
+                        member = members_info[mem]
+                        generic_member = generic_struct.members[mem]
+                        if (member.name != generic_member.name or member.type != generic_member.type):
                             members_match = False
                             break
                     if members_match:
@@ -1052,6 +1067,7 @@ class AutomaticSourceOutputGenerator(OutputGenerator):
         cmd_has_instance = False
         is_create_connect = False
         is_destroy_disconnect = False
+        return_values = []
 
         # Generate the protection information
         (protect_value, protect_string) = self.genProtectInfo(
@@ -1065,7 +1081,7 @@ class AutomaticSourceOutputGenerator(OutputGenerator):
         return_type = cmd_info.elem.find('proto/type')
 
         # If the return type is void, we really don't have a return type so set it to None
-        if (return_type is not None and return_type.text == 'void'):
+        if return_type is not None and return_type.text == 'void':
             return_type = None
 
         if not is_core:
@@ -1081,7 +1097,7 @@ class AutomaticSourceOutputGenerator(OutputGenerator):
         arraylengths = []
         for param in params:
             paramname = param.find('name')
-            arraylength = param.attrib.get('len')
+            arraylength = param.get('len')
             if arraylength is not None:
                 for onelength in arraylength.split(','):
                     if 'null-terminated' not in onelength:
@@ -1090,11 +1106,15 @@ class AutomaticSourceOutputGenerator(OutputGenerator):
 
         # See if this command adjusts any state
         begin_valid_state = cmd_info.elem.get('beginvalidstate')
-        begins_state = (None != begin_valid_state)
+        begins_state = (begin_valid_state is not None)
         end_valid_state = cmd_info.elem.get('endvalidstate')
-        ends_state = (None != end_valid_state)
+        ends_state = (end_valid_state is not None)
         check_valid_state = cmd_info.elem.get('checkvalidstate')
-        checks_state = (None != check_valid_state)
+        checks_state = (check_valid_state is not None)
+
+        # This will capture the core return values, but not any added by extension.
+        return_values = cmd_info.elem.get('successcodes').split(',')
+        return_values += cmd_info.elem.get('errorcodes').split(',')
 
         # If a beginvalidstate string exists, add it to the list of tracked states
         if begins_state:
@@ -1115,8 +1135,8 @@ class AutomaticSourceOutputGenerator(OutputGenerator):
             pointer_count_var = ''
             array_name_for_length = ''
             is_null_terminated = False
-            if param and param.attrib and param.attrib.get('len'):
-                is_null_terminated = 'null-terminated' in param.attrib.get(
+            if param is not None and param.get('len'):
+                is_null_terminated = 'null-terminated' in param.get(
                     'len')
 
             # Get the basics of the parameter that we need (type and name) and
@@ -1136,8 +1156,8 @@ class AutomaticSourceOutputGenerator(OutputGenerator):
                     break
 
             # Determine if this is a null-terminated array
-            if param and param.attrib and param.attrib.get('len'):
-                is_null_terminated = 'null-terminated' in param.attrib.get(
+            if param is not None and param.get('len'):
+                is_null_terminated = 'null-terminated' in param.get(
                     'len')
 
             # If this is an instance, remember it since we have to treat instance cases
@@ -1148,12 +1168,13 @@ class AutomaticSourceOutputGenerator(OutputGenerator):
             # Determine if this is a pointer array with a length variable
             if self.getLen(param):
                 param_len = self.getLen(param)
-                if '' != param_len:
+                if param_len:
                     is_array = True
                     pointer_count_var = param_len
 
             # If this is a handle, and it is a pointer, it really must also be an array unless it is a create command
-            if (self.isHandle(param_type) and pointer_count > 0 and not (is_create_connect or is_array or self.paramIsStaticArray(param) or len(array_count_var) > 0 or len(pointer_count_var) > 0)):
+            if self.isHandle(param_type) and pointer_count > 0 and not (
+                    is_create_connect or is_array or self.paramIsStaticArray(param) or array_count_var or pointer_count_var):
                 self.printCodeGenErrorMessage('OpenXR command %s has parameter %s which is a non-array pointer to a handle and is not a create command' % (
                     name, param_name))
 
@@ -1162,12 +1183,11 @@ class AutomaticSourceOutputGenerator(OutputGenerator):
                 self.MemberOrParam(
                     type=param_type,
                     name=param_name,
-                    is_const=True if 'const' in param_cdecl.strip().lower() else False,
+                    is_const=('const' in param_cdecl.strip().lower()),
                     is_handle=self.isHandle(param_type),
-                    is_bool=True if 'XrBool' in paramInfo[0] else False,
+                    is_bool=('XrBool' in paramInfo[0]),
                     is_optional=self.paramIsOptional(param),
-                    no_auto_validity=True if param.attrib.get(
-                        'noautovalidity') else False,
+                    no_auto_validity=(param.get('noautovalidity') is not None),
                     is_array=is_array,
                     is_static_array=self.paramIsStaticArray(param),
                     static_array_sizes=self.paramStaticArraySizes(
@@ -1183,8 +1203,10 @@ class AutomaticSourceOutputGenerator(OutputGenerator):
                     values=None))
 
         # If this is a create or destroy that returns a handle, it must have a return type.
-        if ((is_create_connect or is_destroy_disconnect) and cmd_params[-1].is_handle and
-                (return_type is None or return_type.text != 'XrResult')):
+        is_create_or_destroy = (is_create_connect or is_destroy_disconnect)
+        is_last_param_handle = cmd_params[-1].is_handle
+        returns_result = (return_type is not None) and (return_type.text == 'XrResult')
+        if is_create_or_destroy and is_last_param_handle and not returns_result:
             self.printCodeGenErrorMessage(
                 'OpenXR create/destroy command %s requires an XrResult return value' % name)
 
@@ -1192,7 +1214,7 @@ class AutomaticSourceOutputGenerator(OutputGenerator):
         # For example: XR_VERSION_1_0 wraps the core 1.0 OpenXR functionality
         if is_core:
             core_command_type = 'instance'
-            if handle and handle_type != 'XrInstance':
+            if handle is not None and handle_type != 'XrInstance':
                 core_command_type = 'device'
             self.core_commands.append(
                 self.CommandData(name=name,
@@ -1204,6 +1226,7 @@ class AutomaticSourceOutputGenerator(OutputGenerator):
                                  protect_value=protect_value,
                                  protect_string=protect_string,
                                  return_type=return_type,
+                                 return_values=return_values,
                                  handle=handle,
                                  handle_type=handle_type,
                                  has_instance=cmd_has_instance,
@@ -1223,6 +1246,7 @@ class AutomaticSourceOutputGenerator(OutputGenerator):
                                  protect_value=protect_value,
                                  protect_string=protect_string,
                                  return_type=return_type,
+                                 return_values=return_values,
                                  handle=handle,
                                  handle_type=handle_type,
                                  has_instance=cmd_has_instance,
@@ -1233,7 +1257,6 @@ class AutomaticSourceOutputGenerator(OutputGenerator):
                                  cdecl=self.makeCDecls(cmd_info.elem)[0]))
 
     def findState(self, state):
-        found_state = None
         for api_state in self.api_states:
             if api_state.state == state:
                 return api_state
@@ -1251,7 +1274,7 @@ class AutomaticSourceOutputGenerator(OutputGenerator):
         for cur_state in state_list:
             found_state = self.findState(cur_state)
             # If not found, create a new one
-            if None == found_state:
+            if found_state is None:
                 # Split the state name into the "type" and the "variable"
                 # after the first underscore ('_')
                 split_state_name = cur_state.split('_', 1)
@@ -1287,7 +1310,7 @@ class AutomaticSourceOutputGenerator(OutputGenerator):
         for cur_state in state_list:
             found_state = self.findState(cur_state)
             # If not found, create a new one
-            if None == found_state:
+            if found_state is None:
                 # Split the state name into the "type" and the "variable"
                 # after the first underscore ('_')
                 split_state_name = cur_state.split('_', 1)
@@ -1323,7 +1346,7 @@ class AutomaticSourceOutputGenerator(OutputGenerator):
         for cur_state in state_list:
             found_state = self.findState(cur_state)
             # If not found, create a new one
-            if None == found_state:
+            if found_state is None:
                 # Split the state name into the "type" and the "variable"
                 # after the first underscore ('_')
                 split_state_name = cur_state.split('_', 1)
@@ -1361,7 +1384,7 @@ class AutomaticSourceOutputGenerator(OutputGenerator):
     #   self            the AutomaticSourceOutputGenerator object
     #   param           the XML information for the param
     def paramIsArray(self, param):
-        return param.attrib.get('len') is not None
+        return param.get('len') is not None
 
     # Check if the parameter passed in is a static array
     #   self            the AutomaticSourceOutputGenerator object
@@ -1381,23 +1404,27 @@ class AutomaticSourceOutputGenerator(OutputGenerator):
         static_array_sizes = []
         param_name = param.find('name')
         param_enum = param.find('enum')
-        if param_name.tail and ('[' in param_name.tail):
-            static_array_dimen = param_name.tail.count('[')
-            if static_array_dimen > 0:
-                if static_array_dimen == 1 and param_enum is not None:
-                    static_array_sizes.append(param_enum.text)
-                else:
-                    tail_str = param_name.tail
-                    while (tail_str.count('[') > 0):
-                        tail_str = tail_str.replace('[', '', 1)
-                        tail_str = tail_str.replace(']', '', 1)
-                        if len(tail_str) > 0:
-                            cur_size_str = ''
-                            if tail_str.count('[') > 0:
-                                cur_size_str = tail_str[0:tail_str.find('[')]
-                            else:
-                                cur_size_str = tail_str
-                            static_array_sizes.append(cur_size_str)
+        if not param_name.tail or '[' not in param_name.tail:
+            return static_array_sizes
+
+        static_array_dimen = param_name.tail.count('[')
+        if static_array_dimen == 0:
+            return static_array_sizes
+        if static_array_dimen == 1 and param_enum is not None:
+            static_array_sizes.append(param_enum.text)
+        else:
+            tail_str = param_name.tail
+            while (tail_str.count('[') > 0):
+                tail_str = tail_str.replace('[', '', 1)
+                tail_str = tail_str.replace(']', '', 1)
+
+                if tail_str:
+                    cur_size_str = ''
+                    if tail_str.count('[') > 0:
+                        cur_size_str = tail_str[0:tail_str.find('[')]
+                    else:
+                        cur_size_str = tail_str
+                    static_array_sizes.append(cur_size_str)
         return static_array_sizes
 
     # Check if the parameter passed in is optional
@@ -1408,7 +1435,7 @@ class AutomaticSourceOutputGenerator(OutputGenerator):
         # See if the handle is optional
         is_optional = False
         # Simple, if it's optional, return true
-        optional_string = param.attrib.get('optional')
+        optional_string = param.get('optional')
         if optional_string:
             if optional_string == 'true':
                 is_optional = True
@@ -1453,28 +1480,6 @@ class AutomaticSourceOutputGenerator(OutputGenerator):
         array_dimen = past_type_string.count('[')
         return array_dimen
 
-    # Get the parent of a handle object
-    #   self            the AutomaticSourceOutputGenerator object
-    #   handle_name     the name of the handle to return the parent of
-    def getHandleParent(self, handle_name):
-        types = self.registry.tree.findall("types/type")
-        for elem in types:
-            if ((elem.find("name") and elem.find('name').text == handle_name) or
-                    elem.attrib.get('name') == handle_name):
-                return elem.attrib.get('parent')
-        return None
-
-    # Get the ancestors of a handle object
-    #   self            the AutomaticSourceOutputGenerator object
-    #   handle_name     the name of the handle to return the parent of
-    def getHandleAncestors(self, handle_name):
-        ancestors = []
-        current = handle_name
-        while True:
-            current = self.getHandleParent(current)
-            if current is None:
-                return ancestors
-            ancestors.append(current)
 
     # Determine if the provided name is really part of the API core
     #   self            the AutomaticSourceOutputGenerator object
@@ -1621,30 +1626,6 @@ class AutomaticSourceOutputGenerator(OutputGenerator):
                 ret_struct = cur_struct
                 break
         return ret_struct
-
-    # Try to do check if a structure is always considered valid (i.e. there's no rules to its acceptance)
-    #   self            the AutomaticSourceOutputGenerator object
-    #   struct_name     the name of the structure to evaluate
-    def isStructAlwaysValid(self, struct_name):
-        struct = self.registry.tree.find(
-            "types/type[@name='" + struct_name + "']")
-        params = struct.findall('member')
-        for param in params:
-            paramname = param.find('name')
-            paramtype = param.find('type')
-            typecategory = self.getTypeCategory(paramtype.text)
-            if paramname.text == 'next':
-                return False
-            if paramname.text == 'type':
-                return False
-            if paramtype.text == 'void' or paramtype.text == 'char' or self.paramIsArray(param) or self.paramIsPointer(param):
-                return False
-            elif typecategory == 'handle' or typecategory == 'enum' or typecategory == 'bitmask':
-                return False
-            elif typecategory == 'struct' or typecategory == 'union':
-                if self.isStructAlwaysValid(paramtype.text) is False:
-                    return False
-        return True
 
     # Utility function to determine if a type is a union
     #   self            the AutomaticSourceOutputGenerator object
@@ -1799,3 +1780,19 @@ class AutomaticSourceOutputGenerator(OutputGenerator):
     #   indent_cnt      the number of indents to return a string of
     def writeIndent(self, indent_cnt):
         return '    ' * indent_cnt
+
+    
+    def iterateCoreThenExtensions(self, iterable):
+        self.cur_extension_name = ''
+        for isCore in [True, False]:
+            elts = filter(iterable, lambda elt: self.isCoreExtensionName(
+                elt.ext_name) == isCore)
+            for elt in elts:
+                this_ext_name = elt.ext_name
+                if this_ext_name != self.cur_extension_name:
+                    self.cur_extension_name = this_ext_name
+                    self.is_extension_change = True
+                else:
+                    self.is_extension_change = False
+
+                yield elt

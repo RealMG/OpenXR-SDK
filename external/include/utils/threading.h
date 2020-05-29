@@ -14,6 +14,8 @@ LICENSE
 
 Copyright (c) 2016 Oculus VR, LLC.
 
+SPDX-License-Identifier: Apache-2.0
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
@@ -533,7 +535,8 @@ typedef struct
 // Note that on Android AttachCurrentThread will reset the thread name.
 static void ksThread_SetName( const char * name )
 {
-#if defined( OS_WINDOWS )
+	(void)name;
+#if defined( OS_WINDOWS ) && !defined(__MINGW32__)
 	static const unsigned int MS_VC_EXCEPTION = 0x406D1388;
 
 #pragma pack( push, 8 )
@@ -621,14 +624,14 @@ static void ksThread_SetAffinity( int mask )
 		unsigned int bestFrequency = 0;
 		for ( int i = 0; i < 16; i++ )
 		{
-			int maxFrequency = 0;
+			unsigned int maxFrequency = 0;
 			const char * files[] =
 			{
 				"scaling_available_frequencies",	// not available on all devices
 				"scaling_max_freq",					// no user read permission on all devices
 				"cpuinfo_max_freq",					// could be set lower than the actual max, but better than nothing
 			};
-			for ( int j = 0; j < ( sizeof(files) / sizeof(files[0]) ); j++ )
+			for ( unsigned int j = 0; j < ( sizeof(files) / sizeof(files[0]) ); j++ )
 			{
 				char fileName[1024];
 				sprintf( fileName, "/sys/devices/system/cpu/cpu%d/cpufreq/%s", i, files[j] );

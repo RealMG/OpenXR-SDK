@@ -39,7 +39,12 @@ static const char* FragmentShaderGlsl = R"_(
     )_";
 
 struct OpenGLGraphicsPlugin : public IGraphicsPlugin {
-    OpenGLGraphicsPlugin(const std::shared_ptr<Options>&, std::shared_ptr<IPlatformPlugin>){};
+    OpenGLGraphicsPlugin(const std::shared_ptr<Options>& /*unused*/, const std::shared_ptr<IPlatformPlugin> /*unused*/&){};
+
+    OpenGLGraphicsPlugin(const OpenGLGraphicsPlugin&) = delete;
+    OpenGLGraphicsPlugin& operator=(const OpenGLGraphicsPlugin&) = delete;
+    OpenGLGraphicsPlugin(OpenGLGraphicsPlugin&&) = delete;
+    OpenGLGraphicsPlugin& operator=(OpenGLGraphicsPlugin&&) = delete;
 
     ~OpenGLGraphicsPlugin() override {
         if (m_swapchainFramebuffer != 0) {
@@ -78,17 +83,13 @@ struct OpenGLGraphicsPlugin : public IGraphicsPlugin {
     }
 
     void InitializeDevice(XrInstance instance, XrSystemId systemId) override {
+        // Extension function must be loaded by name
+        PFN_xrGetOpenGLGraphicsRequirementsKHR pfnGetOpenGLGraphicsRequirementsKHR = nullptr;
+        CHECK_XRCMD(xrGetInstanceProcAddr(instance, "xrGetOpenGLGraphicsRequirementsKHR",
+                                          reinterpret_cast<PFN_xrVoidFunction*>(&pfnGetOpenGLGraphicsRequirementsKHR)));
+
         XrGraphicsRequirementsOpenGLKHR graphicsRequirements{XR_TYPE_GRAPHICS_REQUIREMENTS_OPENGL_KHR};
-        CHECK_XRCMD(xrGetOpenGLGraphicsRequirementsKHR(instance, systemId, &graphicsRequirements));
-
-        GLint major, minor;
-        glGetIntegerv(GL_MAJOR_VERSION, &major);
-        glGetIntegerv(GL_MINOR_VERSION, &minor);
-
-        const uint32_t desiredApiVersion = XR_MAKE_VERSION(major, minor, 0);
-        if (graphicsRequirements.minApiVersionSupported > desiredApiVersion) {
-            THROW("Runtime does not support desired Graphics API and/or version");
-        }
+        CHECK_XRCMD(pfnGetOpenGLGraphicsRequirementsKHR(instance, systemId, &graphicsRequirements));
 
         // Initialize the gl extensions. Note we have to open a window.
         ksDriverInstance driverInstance{};
@@ -100,17 +101,33 @@ struct OpenGLGraphicsPlugin : public IGraphicsPlugin {
             THROW("Unable to create GL context");
         }
 
+        GLint major = 0;
+        GLint minor = 0;
+        glGetIntegerv(GL_MAJOR_VERSION, &major);
+        glGetIntegerv(GL_MINOR_VERSION, &minor);
+
+        const XrVersion desiredApiVersion = XR_MAKE_VERSION(major, minor, 0);
+        if (graphicsRequirements.minApiVersionSupported > desiredApiVersion) {
+            THROW("Runtime does not support desired Graphics API and/or version");
+        }
+
 #ifdef XR_USE_PLATFORM_WIN32
         m_graphicsBinding.hDC = window.context.hDC;
         m_graphicsBinding.hGLRC = window.context.hGLRC;
 #elif defined(XR_USE_PLATFORM_XLIB)
-        // TODO: Just need something other than NULL here for now (for validation).  Eventually need
-        //       to correctly put in a valid pointer to an Display
-        m_graphicsBinding.xDisplay = reinterpret_cast<Display*>(0xFFFFFFFF);
+        m_graphicsBinding.xDisplay = window.context.xDisplay;
+        m_graphicsBinding.visualid = window.context.visualid;
+        m_graphicsBinding.glxFBConfig = window.context.glxFBConfig;
+        m_graphicsBinding.glxDrawable = window.context.glxDrawable;
+        m_graphicsBinding.glxContext = window.context.glxContext;
 #elif defined(XR_USE_PLATFORM_XCB)
-        // TODO: Just need something other than NULL here for now (for validation).  Eventually need
-        //       to correctly put in a valid pointer to an xcb_connection_t
-        m_graphicsBinding.connection = reinterpret_cast<xcb_connection_t*>(0xFFFFFFFF);
+        // TODO: Still missing the platform adapter, and some items to make this usable.
+        m_graphicsBinding.connection = window.connection;
+        // m_graphicsBinding.screenNumber = window.context.screenNumber;
+        // m_graphicsBinding.fbconfigid = window.context.fbconfigid;
+        m_graphicsBinding.visualid = window.context.visualid;
+        m_graphicsBinding.glxDrawable = window.context.glxDrawable;
+        // m_graphicsBinding.glxContext = window.context.glxContext;
 #elif defined(XR_USE_PLATFORM_WAYLAND)
         // TODO: Just need something other than NULL here for now (for validation).  Eventually need
         //       to correctly put in a valid pointer to an wl_display
@@ -169,7 +186,7 @@ struct OpenGLGraphicsPlugin : public IGraphicsPlugin {
         glEnableVertexAttribArray(m_vertexAttribColor);
         glBindBuffer(GL_ARRAY_BUFFER, m_cubeVertexBuffer);
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_cubeIndexBuffer);
-        glVertexAttribPointer(m_vertexAttribCoords, 3, GL_FLOAT, GL_FALSE, sizeof(Geometry::Vertex), 0);
+        glVertexAttribPointer(m_vertexAttribCoords, 3, GL_FLOAT, GL_FALSE, sizeof(Geometry::Vertex), nullptr);
         glVertexAttribPointer(m_vertexAttribColor, 3, GL_FLOAT, GL_FALSE, sizeof(Geometry::Vertex),
                               reinterpret_cast<const void*>(sizeof(XrVector3f)));
     }
@@ -197,16 +214,16 @@ struct OpenGLGraphicsPlugin : public IGraphicsPlugin {
     }
 
     int64_t SelectColorSwapchainFormat(const std::vector<int64_t>& runtimeFormats) const override {
-        // List of supported color swapchain formats, in priority order.
+        // List of supported color swapchain formats.
         constexpr int64_t SupportedColorSwapchainFormats[] = {
             GL_RGBA8,
             GL_RGBA8_SNORM,
         };
 
         auto swapchainFormatIt =
-            std::find_first_of(std::begin(SupportedColorSwapchainFormats), std::end(SupportedColorSwapchainFormats),
-                               runtimeFormats.begin(), runtimeFormats.end());
-        if (swapchainFormatIt == std::end(SupportedColorSwapchainFormats)) {
+            std::find_first_of(runtimeFormats.begin(), runtimeFormats.end(), std::begin(SupportedColorSwapchainFormats),
+                               std::end(SupportedColorSwapchainFormats));
+        if (swapchainFormatIt == runtimeFormats.end()) {
             THROW("No runtime swapchain format supported for color swapchain");
         }
 
@@ -241,9 +258,10 @@ struct OpenGLGraphicsPlugin : public IGraphicsPlugin {
             return depthBufferIt->second;
         }
 
-        // This back-buffer has no cooresponding depth-stencil texture, so create one with matching dimensions.
+        // This back-buffer has no corresponding depth-stencil texture, so create one with matching dimensions.
 
-        GLint width, height;
+        GLint width;
+        GLint height;
         glBindTexture(GL_TEXTURE_2D, colorTexture);
         glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &width);
         glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_HEIGHT, &height);
@@ -318,7 +336,7 @@ struct OpenGLGraphicsPlugin : public IGraphicsPlugin {
             glUniformMatrix4fv(m_modelViewProjectionUniformLocation, 1, GL_FALSE, reinterpret_cast<const GLfloat*>(&mvp));
 
             // Draw the cube.
-            glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(ArraySize(Geometry::c_cubeIndices)), GL_UNSIGNED_SHORT, 0);
+            glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(ArraySize(Geometry::c_cubeIndices)), GL_UNSIGNED_SHORT, nullptr);
         }
 
         glBindVertexArray(0);
@@ -327,7 +345,9 @@ struct OpenGLGraphicsPlugin : public IGraphicsPlugin {
 
         // Swap our window every other eye for RenderDoc
         static int everyOther = 0;
-        if (everyOther++ & 1) ksGpuWindow_SwapBuffers(&window);
+        if ((everyOther++ & 1) != 0) {
+            ksGpuWindow_SwapBuffers(&window);
+        }
     }
 
    private:

@@ -1,6 +1,8 @@
 #!/usr/bin/python3
 #
-# Copyright (c) 2013-2019 The Khronos Group Inc.
+# Copyright (c) 2013-2020 The Khronos Group Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,16 +16,27 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import argparse, cProfile, pdb, string, sys, time
-from reg import *
-from generator import write
+import argparse
+import os
+import pdb
+import re
+import sys
+import time
+import xml.etree.ElementTree as etree
+
+sys.path.append(os.path.abspath(os.path.dirname(__file__)))
+
 from cgenerator import CGeneratorOptions, COutputGenerator
+from creflectiongenerator import CReflectionOutputGenerator
 from docgenerator import DocGeneratorOptions, DocOutputGenerator
-from extensionmetadocgenerator import ExtensionMetaDocGeneratorOptions, ExtensionMetaDocOutputGenerator
-from pygenerator import PyOutputGenerator
-from validitygenerator import ValidityOutputGenerator
+from extensionmetadocgenerator import (ExtensionMetaDocGeneratorOptions,
+                                       ExtensionMetaDocOutputGenerator)
+from generator import write
 from hostsyncgenerator import HostSynchronizationOutputGenerator
-from extensionStubSource import ExtensionStubSourceOutputGenerator # TODO Unused?
+from indexgenerator import DocIndexOutputGenerator
+from pygenerator import PyOutputGenerator
+from reg import Registry
+from validitygenerator import ValidityOutputGenerator
 from xrconventions import OpenXRConventions
 
 # Simple timer functions
@@ -32,29 +45,33 @@ startTime = None
 
 def startTimer(timeit):
     global startTime
-    startTime = time.process_time()
+    if timeit:
+        startTime = time.process_time()
 
 
 def endTimer(timeit, msg):
     global startTime
-    endTime = time.process_time()
-    if (timeit):
+    if timeit:
+        endTime = time.process_time()
         write(msg, endTime - startTime, file=sys.stderr)
         startTime = None
 
-# Turn a list of strings into a regexp string matching exactly those strings
-def makeREstring(list, default = None):
-    if len(list) > 0 or default == None:
-        return '^(' + '|'.join(list) + ')$'
-    else:
-        return default
 
-# Returns a directory of [ generator function, generator options ] indexed
-# by specified short names. The generator options incorporate the following
-# parameters:
-#
-# args is an parsed argument object; see below for the fields that are used.
+def makeREstring(strings, default=None, strings_are_regex=False):
+    """Turn a list of strings into a regexp string matching exactly those strings."""
+    if strings or default is None:
+        if not strings_are_regex:
+            strings = (re.escape(s) for s in strings)
+        return '^(' + '|'.join(strings) + ')$'
+    return default
+
+
 def makeGenOpts(args):
+    """Returns a directory of [ generator function, generator options ] indexed
+    by specified short names. The generator options incorporate the following
+    parameters:
+
+    args is an parsed argument object; see below for the fields that are used."""
     global genOpts
     genOpts = {}
 
@@ -92,7 +109,9 @@ def makeGenOpts(args):
     # Copyright text prefixing all headers (list of strings).
     prefixStrings = [
         '/*',
-        '** Copyright (c) 2017-2019 The Khronos Group Inc.',
+        '** Copyright (c) 2017-2020 The Khronos Group Inc.',
+        '**',
+        '** SPDX-License-Identifier: Apache-2.0',
         '**',
         '** Licensed under the Apache License, Version 2.0 (the "License");',
         '** you may not use this file except in compliance with the License.',
@@ -118,15 +137,24 @@ def makeGenOpts(args):
         ''
     ]
 
+    # Include the non-platform openxr header in the platform header.
+    platformPrefixStrings = [
+        '#include "openxr.h"'
+    ]
+
     # Defaults for generating re-inclusion protection wrappers (or not)
     protectFile = protect
 
-    # OpenXR 0.x - header for core API + extensions.
+    # An API style conventions object
+    conventions = OpenXRConventions()
+
+    # OpenXR 1.0 - header for core API + extensions.
     # To generate just the core API,
     # change to 'defaultExtensions = None' below.
     genOpts['openxr.h'] = [
           COutputGenerator,
           CGeneratorOptions(
+            conventions       = conventions,
             filename          = 'openxr.h',
             directory         = directory,
             apiname           = 'openxr',
@@ -146,13 +174,16 @@ def makeGenOpts(args):
             apicall           = 'XRAPI_ATTR ',
             apientry          = 'XRAPI_CALL ',
             apientryp         = 'XRAPI_PTR *',
-            alignFuncParam    = 48)
+            alignFuncParam    = 48,
+            genAliasMacro     = True,
+            aliasMacro        = 'XR_MAY_ALIAS')
         ]
 
     # OpenXR platform header for Graphics API and Platform extensions.
     genOpts['openxr_platform.h'] = [
           COutputGenerator,
           CGeneratorOptions(
+            conventions       = conventions,
             filename          = 'openxr_platform.h',
             directory         = directory,
             apiname           = 'openxr',
@@ -163,7 +194,7 @@ def makeGenOpts(args):
             addExtensions     = None,
             removeExtensions  = None,
             emitExtensions    = emitExtensionsPat,
-            prefixText        = prefixStrings + xrPrefixStrings,
+            prefixText        = prefixStrings + xrPrefixStrings + platformPrefixStrings,
             genFuncPointers   = True,
             protectFile       = protectFile,
             protectFeature    = False,
@@ -172,10 +203,41 @@ def makeGenOpts(args):
             apicall           = 'XRAPI_ATTR ',
             apientry          = 'XRAPI_CALL ',
             apientryp         = 'XRAPI_PTR *',
-            alignFuncParam    = 48)
+            alignFuncParam    = 48,
+            genAliasMacro     = True,
+            aliasMacro        = 'XR_MAY_ALIAS')
         ]
 
-    # OpenXR 1.0 draft - API include files for spec and ref pages
+    # OpenXR platform header for Graphics API and Platform extensions.
+    genOpts['openxr_reflection.h'] = [
+          CReflectionOutputGenerator,
+          CGeneratorOptions(
+            conventions       = conventions,
+            filename          = 'openxr_reflection.h',
+            directory         = directory,
+            apiname           = 'openxr',
+            profile           = None,
+            versions          = featuresPat,
+            emitversions      = featuresPat,
+            defaultExtensions = 'openxr',
+            addExtensions     = None,
+            removeExtensions  = None,
+            emitExtensions    = emitExtensionsPat,
+            prefixText        = prefixStrings + xrPrefixStrings + platformPrefixStrings,
+            genFuncPointers   = True,
+            protectFile       = protectFile,
+            protectFeature    = False,
+            protectProto      = '#ifndef',
+            protectProtoStr   = 'XR_NO_PROTOTYPES',
+            apicall           = 'XRAPI_ATTR ',
+            apientry          = 'XRAPI_CALL ',
+            apientryp         = 'XRAPI_PTR *',
+            alignFuncParam    = 48,
+            genAliasMacro     = True,
+            aliasMacro        = 'XR_MAY_ALIAS')
+        ]
+
+    # OpenXR 1.0 - API include files for spec and ref pages
     # Overwrites include subdirectories in spec source tree
     # The generated include files do not include the calling convention
     # macros (apientry etc.), unlike the header files.
@@ -185,6 +247,7 @@ def makeGenOpts(args):
     genOpts['apiinc'] = [
           DocOutputGenerator,
           DocGeneratorOptions(
+            conventions       = conventions,
             filename          = 'apiinc',
             directory         = directory,
             apiname           = 'openxr',
@@ -200,14 +263,34 @@ def makeGenOpts(args):
             apientry          = '',
             apientryp         = '*',
             alignFuncParam    = 48,
-            expandEnumerants  = False)
+            secondaryInclude  = True,
+            expandEnumerants  = False,
+            extEnumerantAdditions = True)
         ]
 
     # API names to validate man/api spec includes & links
     genOpts['xrapi.py'] = [
           PyOutputGenerator,
           DocGeneratorOptions(
+            conventions       = conventions,
             filename          = 'xrapi.py',
+            directory         = directory,
+            apiname           = 'openxr',
+            profile           = None,
+            versions          = featuresPat,
+            emitversions      = featuresPat,
+            defaultExtensions = None,
+            addExtensions     = addExtensionsPat,
+            removeExtensions  = removeExtensionsPat,
+            emitExtensions    = emitExtensionsPat)
+        ]
+
+    # Index chapter
+    genOpts['index.adoc'] = [
+          DocIndexOutputGenerator,
+          DocGeneratorOptions(
+            conventions       = conventions,
+            filename          = 'index.adoc',
             directory         = directory,
             apiname           = 'openxr',
             profile           = None,
@@ -223,6 +306,7 @@ def makeGenOpts(args):
     genOpts['validinc'] = [
           ValidityOutputGenerator,
           DocGeneratorOptions(
+            conventions       = conventions,
             filename          = 'validinc',
             directory         = directory,
             apiname           = 'openxr',
@@ -232,15 +316,15 @@ def makeGenOpts(args):
             defaultExtensions = None,
             addExtensions     = addExtensionsPat,
             removeExtensions  = removeExtensionsPat,
-            emitExtensions    = emitExtensionsPat,
-            conventions       = OpenXRConventions())
+            emitExtensions    = emitExtensionsPat)
         ]
 
     # Core API host sync table files for spec
     genOpts['hostsyncinc'] = [
           HostSynchronizationOutputGenerator,
           DocGeneratorOptions(
-            filename          = 'timeMarker',
+            conventions       = conventions,
+            filename          = 'hostsyncinc',
             directory         = directory,
             apiname           = 'openxr',
             profile           = None,
@@ -256,6 +340,7 @@ def makeGenOpts(args):
     genOpts['extinc'] = [
           ExtensionMetaDocOutputGenerator,
           ExtensionMetaDocGeneratorOptions(
+            conventions       = conventions,
             filename          = 'extinc',
             directory         = directory,
             apiname           = 'openxr',
@@ -268,20 +353,21 @@ def makeGenOpts(args):
             emitExtensions    = emitExtensionsPat)
         ]
 
-# Generate a target based on the options in the matching genOpts{} object.
-# This is encapsulated in a function so it can be profiled and/or timed.
-# The args parameter is an parsed argument object containing the following
-# fields that are used:
-#   target - target to generate
-#   directory - directory to generate it in
-#   protect - True if re-inclusion wrappers should be created
-#   extensions - list of additional extensions to include in generated
-#   interfaces
 def genTarget(args):
+    """Generate a target based on the options in the matching genOpts{} object.
+
+    This is encapsulated in a function so it can be profiled and/or timed.
+    The args parameter is an parsed argument object containing the following
+    fields that are used:
+
+    - target - target to generate
+    - directory - directory to generate it in
+    - protect - True if re-inclusion wrappers should be created
+    - extensions - list of additional extensions to include in generated interfaces"""
     # Create generator options with specified parameters
     makeGenOpts(args)
 
-    if (args.target in genOpts.keys()):
+    if args.target in genOpts:
         createGenerator = genOpts[args.target][0]
         options = genOpts[args.target][1]
 
@@ -373,32 +459,36 @@ if __name__ == '__main__':
     tree = etree.parse(args.registry)
     endTimer(args.time, '* Time to make ElementTree =')
 
-    startTimer(args.time)
-    reg.loadElementTree(tree)
-    endTimer(args.time, '* Time to parse ElementTree =')
+    if args.debug:
+        pdb.run('reg.loadElementTree(tree)')
+    else:
+        startTimer(args.time)
+        reg.loadElementTree(tree)
+        endTimer(args.time, '* Time to parse ElementTree =')
 
-    if (args.validate):
+    if args.validate:
         reg.validateGroups()
 
-    if (args.dump):
+    if args.dump:
         write('* Dumping registry to regdump.txt', file=sys.stderr)
-        reg.dumpReg(filehandle = open('regdump.txt', 'w', encoding='utf-8'))
+        reg.dumpReg(filehandle=open('regdump.txt', 'w', encoding='utf-8'))
 
     # create error/warning & diagnostic files
-    if (args.errfile):
+    if args.errfile:
         errWarn = open(args.errfile, 'w', encoding='utf-8')
     else:
         errWarn = sys.stderr
 
-    if (args.diagfile):
+    if args.diagfile:
         diag = open(args.diagfile, 'w', encoding='utf-8')
     else:
         diag = None
 
-    if (args.debug):
+    if args.debug:
         pdb.run('genTarget(args)')
-    elif (args.profile):
-        import cProfile, pstats
+    elif args.profile:
+        import cProfile
+        import pstats
         cProfile.run('genTarget(args)', 'profile.txt')
         p = pstats.Stats('profile.txt')
         p.strip_dirs().sort_stats('time').print_stats(50)

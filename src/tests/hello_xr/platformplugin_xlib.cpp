@@ -5,9 +5,7 @@
 #ifdef XR_USE_PLATFORM_XLIB
 namespace {
 struct XlibPlatformPlugin : public IPlatformPlugin {
-    XlibPlatformPlugin(const std::shared_ptr<Options>&) {}
-
-    virtual ~XlibPlatformPlugin() {}
+    XlibPlatformPlugin(const std::shared_ptr<Options>& /*unused*/) {}
 
     std::vector<std::string> GetInstanceExtensions() const override { return {}; }
 

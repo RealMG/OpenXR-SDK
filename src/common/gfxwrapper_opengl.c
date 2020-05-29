@@ -1,3 +1,10 @@
+/*
+Copyright (c) 2016 Oculus VR, LLC.
+Portions of macOS, iOS, functionality copyright (c) 2016 The Brenwill Workshop Ltd.
+
+SPDX-License-Identifier: Apache-2.0
+*/
+
 #include "gfxwrapper_opengl.h"
 
 /*
@@ -245,13 +252,13 @@ static void ksFrameLog_EndFrame(const ksNanoseconds cpuTimeNanoseconds, const ks
     }
 }
 
-    /*
-    ================================================================================================================================
+/*
+================================================================================================================================
 
-    OpenGL error checking.
+OpenGL error checking.
 
-    ================================================================================================================================
-    */
+================================================================================================================================
+*/
 
 #if defined(_DEBUG)
 #define GL(func)                                 \
@@ -800,7 +807,9 @@ PFNGLFRAMEBUFFERTEXTURE2DMULTISAMPLEEXTPROC glFramebufferTexture2DMultisampleEXT
 // GL_OVR_multiview_multisampled_render_to_texture
 PFNGLFRAMEBUFFERTEXTUREMULTISAMPLEMULTIVIEWOVRPROC glFramebufferTextureMultisampleMultiviewOVR;
 
+#ifndef GL_ES_VERSION_3_2
 PFNGLTEXSTORAGE3DMULTISAMPLEPROC glTexStorage3DMultisample;
+#endif
 
 #if !defined(EGL_OPENGL_ES3_BIT)
 #define EGL_OPENGL_ES3_BIT 0x0040
@@ -857,7 +866,9 @@ static void GlInitExtensions() {
     glFramebufferTextureMultisampleMultiviewOVR =
         (PFNGLFRAMEBUFFERTEXTUREMULTISAMPLEMULTIVIEWOVRPROC)GetExtension("glFramebufferTextureMultisampleMultiviewOVR");
 
+#ifndef GL_ES_VERSION_3_2
     glTexStorage3DMultisample = (PFNGLTEXSTORAGE3DMULTISAMPLEPROC)GetExtension("glTexStorage3DMultisample");
+#endif
 
     glExtensions.timer_query = GlCheckExtension("GL_EXT_disjoint_timer_query");
     glExtensions.texture_clamp_to_border =
@@ -1595,7 +1606,7 @@ static bool ksGpuContext_CreateForSurface(ksGpuContext *context, const ksGpuDevi
 
 #endif
 
-bool ksGpuContext_CreateShared(ksGpuContext *context, const ksGpuContext *other, const int queueIndex) {
+bool ksGpuContext_CreateShared(ksGpuContext *context, const ksGpuContext *other, int queueIndex) {
     UNUSED_PARM(queueIndex);
 
     memset(context, 0, sizeof(ksGpuContext));
@@ -1832,13 +1843,13 @@ static void ksGpuContext_GetLimits(ksGpuContext *context, ksGpuLimits *limits) {
     limits->maxSamples = glGetInteger(GL_MAX_SAMPLES);
 }
 
-    /*
-    ================================================================================================================================
+/*
+================================================================================================================================
 
-    GPU Window.
+GPU Window.
 
-    ================================================================================================================================
-    */
+================================================================================================================================
+*/
 
 #if defined(OS_WINDOWS)
 
@@ -1966,9 +1977,9 @@ void ksGpuWindow_Destroy(ksGpuWindow *window) {
     }
 }
 
-bool ksGpuWindow_Create(ksGpuWindow *window, ksDriverInstance *instance, const ksGpuQueueInfo *queueInfo, const int queueIndex,
-                        const ksGpuSurfaceColorFormat colorFormat, const ksGpuSurfaceDepthFormat depthFormat,
-                        const ksGpuSampleCount sampleCount, const int width, const int height, const bool fullscreen) {
+bool ksGpuWindow_Create(ksGpuWindow *window, ksDriverInstance *instance, const ksGpuQueueInfo *queueInfo, int queueIndex,
+                        ksGpuSurfaceColorFormat colorFormat, ksGpuSurfaceDepthFormat depthFormat, ksGpuSampleCount sampleCount,
+                        int width, int height, bool fullscreen) {
     memset(window, 0, sizeof(ksGpuWindow));
 
     window->colorFormat = colorFormat;
@@ -2194,7 +2205,7 @@ typedef enum { MOUSE_LEFT = Button1, MOUSE_RIGHT = Button2 } ksMouseButton;
         this still appears to be the most reliable way to change video modes for a single
         monitor configuration.
 */
-static bool ChangeVideoMode_XF86VidMode(Display *xDisplay, int xScreen, Window xWindow, int *currentWidth, int *currentHeight,
+static bool ChangeVideoMode_XF86VidMode(Display *xDisplay, int xScreen, int *currentWidth, int *currentHeight,
                                         float *currentRefreshRate, int *desiredWidth, int *desiredHeight,
                                         float *desiredRefreshRate) {
     int videoModeCount;
@@ -2225,7 +2236,7 @@ static bool ChangeVideoMode_XF86VidMode(Display *xDisplay, int xScreen, Window x
             const int dw = modeWidth - *desiredWidth;
             const int dh = modeHeight - *desiredHeight;
             const int sizeError = dw * dw + dh * dh;
-            const float refreshRateError = fabs(modeRefreshRate - *desiredRefreshRate);
+            const float refreshRateError = fabsf(modeRefreshRate - *desiredRefreshRate);
             if (sizeError < bestSizeError || (sizeError == bestSizeError && refreshRateError < bestRefreshRateError)) {
                 bestSizeError = sizeError;
                 bestRefreshRateError = refreshRateError;
@@ -2267,7 +2278,7 @@ static bool ChangeVideoMode_XF86VidMode(Display *xDisplay, int xScreen, Window x
         then NV-CONTROL clients, such as nvidia-settings, will not be able to dynamically manipulate
         the X screen's MetaModes.
 */
-static bool ChangeVideoMode_XRandR_1_1(Display *xDisplay, int xScreen, Window xWindow, int *currentWidth, int *currentHeight,
+static bool ChangeVideoMode_XRandR_1_1(Display *xDisplay, Window xWindow, int *currentWidth, int *currentHeight,
                                        float *currentRefreshRate, int *desiredWidth, int *desiredHeight,
                                        float *desiredRefreshRate) {
     int major_version;
@@ -2321,7 +2332,7 @@ static bool ChangeVideoMode_XRandR_1_1(Display *xDisplay, int xScreen, Window xW
         int rate_index = -1;
         float bestRateError = 1e6f;
         for (int i = 0; i < nrates; i++) {
-            const float error = fabs(rates[i] - *desiredRefreshRate);
+            const float error = fabsf(rates[i] - *desiredRefreshRate);
             if (error < bestRateError) {
                 bestRateError = error;
                 rate_index = i;
@@ -2398,7 +2409,7 @@ static bool ChangeVideoMode_XRandR_1_1(Display *xDisplay, int xScreen, Window xW
         However, this requires calculating all the timing information in code
         because there is no standard library that implements the GTF or CVT.
 */
-static bool ChangeVideoMode_XRandR_1_2(Display *xDisplay, int xScreen, Window xWindow, int *currentWidth, int *currentHeight,
+static bool ChangeVideoMode_XRandR_1_2(Display *xDisplay, Window xWindow, int *currentWidth, int *currentHeight,
                                        float *currentRefreshRate, int *desiredWidth, int *desiredHeight,
                                        float *desiredRefreshRate) {
     int major_version;
@@ -2464,7 +2475,7 @@ static bool ChangeVideoMode_XRandR_1_2(Display *xDisplay, int xScreen, Window xW
             const int dw = modeWidth - *desiredWidth;
             const int dh = modeHeight - *desiredHeight;
             const int sizeError = dw * dw + dh * dh;
-            const float refreshRateError = fabs(modeRefreshRate - *desiredRefreshRate);
+            const float refreshRateError = fabsf(modeRefreshRate - *desiredRefreshRate);
             if (sizeError < bestSizeError || (sizeError == bestSizeError && refreshRateError < bestRefreshRateError)) {
                 bestSizeError = sizeError;
                 bestRefreshRateError = refreshRateError;
@@ -2495,7 +2506,7 @@ void ksGpuWindow_Destroy(ksGpuWindow *window) {
     ksGpuDevice_Destroy(&window->device);
 
     if (window->windowFullscreen) {
-        ChangeVideoMode_XF86VidMode(window->xDisplay, window->xScreen, window->xRoot, NULL, NULL, NULL, &window->desktopWidth,
+        ChangeVideoMode_XF86VidMode(window->xDisplay, window->xScreen, NULL, NULL, NULL, &window->desktopWidth,
                                     &window->desktopHeight, &window->desktopRefreshRate);
 
         XUngrabPointer(window->xDisplay, CurrentTime);
@@ -2551,11 +2562,11 @@ bool ksGpuWindow_Create(ksGpuWindow *window, ksDriverInstance *instance, const k
     window->xRoot = XRootWindow(window->xDisplay, window->xScreen);
 
     if (window->windowFullscreen) {
-        ChangeVideoMode_XF86VidMode(window->xDisplay, window->xScreen, window->xRoot, &window->desktopWidth, &window->desktopHeight,
+        ChangeVideoMode_XF86VidMode(window->xDisplay, window->xScreen, &window->desktopWidth, &window->desktopHeight,
                                     &window->desktopRefreshRate, &window->windowWidth, &window->windowHeight,
                                     &window->windowRefreshRate);
     } else {
-        ChangeVideoMode_XF86VidMode(window->xDisplay, window->xScreen, window->xRoot, &window->desktopWidth, &window->desktopHeight,
+        ChangeVideoMode_XF86VidMode(window->xDisplay, window->xScreen, &window->desktopWidth, &window->desktopHeight,
                                     &window->desktopRefreshRate, NULL, NULL, NULL);
         window->windowRefreshRate = window->desktopRefreshRate;
     }
@@ -2614,7 +2625,7 @@ bool ksGpuWindow_Create(ksGpuWindow *window, ksDriverInstance *instance, const k
         XChangeProperty(window->xDisplay, window->xWindow, _NET_WM_BYPASS_COMPOSITOR, XA_CARDINAL, 32, PropModeReplace,
                         (const unsigned char *)&bypass, 1);
 
-        // Completely dissasociate window from window manager.
+        // Completely disassociate window from window manager.
         XSetWindowAttributes attributes;
         attributes.override_redirect = True;
         XChangeWindowAttributes(window->xDisplay, window->xWindow, CWOverrideRedirect, &attributes);
@@ -3159,7 +3170,8 @@ ksGpuWindowEvent ksGpuWindow_ProcessEvents(ksGpuWindow *window) {
                 }
                 break;
             }
-            default: { break; }
+            default:
+                break;
         }
         free(event);
     }
@@ -3178,6 +3190,10 @@ ksGpuWindowEvent ksGpuWindow_ProcessEvents(ksGpuWindow *window) {
 
 #elif defined(OS_LINUX_WAYLAND)
 
+#ifdef __GNUC__
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-parameter"
+#endif
 static void _keyboard_keymap_cb(void *data, struct wl_keyboard *keyboard, uint32_t format, int fd, uint32_t size) { close(fd); }
 static void _keyboard_modifiers_cb(void *data, struct wl_keyboard *keyboard, uint32_t serial, uint32_t mods_depressed,
                                    uint32_t mods_latched, uint32_t mods_locked, uint32_t group) {}
@@ -3325,11 +3341,16 @@ static void _registry_cb(void *data, struct wl_registry *registry, uint32_t id, 
 
 static void _registry_remove_cb(void *data, struct wl_registry *registry, uint32_t id) {}
 
+#ifdef __GNUC__
+#pragma GCC diagnostic pop
+#endif
+
 const struct wl_registry_listener registry_listener = {_registry_cb, _registry_remove_cb};
 
 bool ksGpuWindow_Create(ksGpuWindow *window, ksDriverInstance *instance, const ksGpuQueueInfo *queueInfo, const int queueIndex,
                         const ksGpuSurfaceColorFormat colorFormat, const ksGpuSurfaceDepthFormat depthFormat,
                         const ksGpuSampleCount sampleCount, const int width, const int height, const bool fullscreen) {
+    (void)queueIndex;
     memset(window, 0, sizeof(ksGpuWindow));
 
     window->display = NULL;
@@ -3465,12 +3486,12 @@ ksGpuWindowEvent ksGpuWindow_ProcessEvents(ksGpuWindow *window) {
     return KS_GPU_WINDOW_EVENT_NONE;
 }
 
-    /*
-     * TODO:
-     * This is a work around for ksKeyboardKey naming collision
-     * with the definitions from <linux/input.h>.
-     * The proper fix for this is to rename the key enums.
-     */
+/*
+ * TODO:
+ * This is a work around for ksKeyboardKey naming collision
+ * with the definitions from <linux/input.h>.
+ * The proper fix for this is to rename the key enums.
+ */
 
 #undef KEY_A
 #undef KEY_B
@@ -4302,7 +4323,7 @@ ksGpuWindowEvent ksGpuWindow_ProcessEvents(ksGpuWindow *window) {
 
 #endif
 
-void ksGpuWindow_SwapInterval(ksGpuWindow *window, const int swapInterval) {
+void ksGpuWindow_SwapInterval(ksGpuWindow *window, int swapInterval) {
     if (swapInterval != window->windowSwapInterval) {
 #if defined(OS_WINDOWS)
         wglSwapIntervalEXT(swapInterval);
@@ -4341,7 +4362,7 @@ void ksGpuWindow_SwapBuffers(ksGpuWindow *window) {
     // Even with smoothing, this is not particularly accurate.
     const float frameTimeNanoseconds = 1000.0f * 1000.0f * 1000.0f / window->windowRefreshRate;
     const float deltaTimeNanoseconds = (float)newTimeNanoseconds - window->lastSwapTime - frameTimeNanoseconds;
-    if (fabs(deltaTimeNanoseconds) < frameTimeNanoseconds * 0.75f) {
+    if (fabsf(deltaTimeNanoseconds) < frameTimeNanoseconds * 0.75f) {
         newTimeNanoseconds = (ksNanoseconds)(window->lastSwapTime + frameTimeNanoseconds + 0.025f * deltaTimeNanoseconds);
     }
     // const float smoothDeltaNanoseconds = (float)( newTimeNanoseconds - window->lastSwapTime );

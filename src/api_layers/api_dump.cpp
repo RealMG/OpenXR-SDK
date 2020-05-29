@@ -1,6 +1,8 @@
-// Copyright (c) 2017-2019 The Khronos Group Inc.
+// Copyright (c) 2017-2020 The Khronos Group Inc.
 // Copyright (c) 2017-2019 Valve Corporation
 // Copyright (c) 2017-2019 LunarG, Inc.
+//
+// SPDX-License-Identifier: Apache-2.0
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,27 +17,37 @@
 // limitations under the License.
 //
 // Author: Mark Young <marky@lunarg.com>
+// Author: Dave Houlton <daveh@lunarg.com>
 //
 
-#include <iostream>
-#include <fstream>
-#include <sstream>
-#include <cstring>
-#include <string>
-#include <mutex>
-#include <unordered_map>
-#include <algorithm>
-#include <cctype>
-
-#include "xr_generated_api_dump.hpp"
-#include "xr_generated_dispatch_table.h"
+#include "hex_and_handles.h"
 #include "loader_interfaces.h"
 #include "platform_utils.hpp"
+#include "xr_generated_api_dump.hpp"
+#include "xr_generated_dispatch_table.h"
+
+#include <openxr/openxr.h>
+
+#include <algorithm>
+#include <cctype>
+#include <cstring>
+#include <fstream>
+#include <iostream>
+#include <mutex>
+#include <sstream>
+#include <stdexcept>
+#include <string>
+#include <tuple>
+#include <unordered_map>
+#include <utility>
+#include <vector>
 
 #if defined(__GNUC__) && __GNUC__ >= 4
 #define LAYER_EXPORT __attribute__((visibility("default")))
 #elif defined(__SUNPRO_C) && (__SUNPRO_C >= 0x590)
 #define LAYER_EXPORT __attribute__((visibility("default")))
+#elif defined(_WIN32)
+#define LAYER_EXPORT __declspec(dllexport)
 #else
 #define LAYER_EXPORT
 #endif
@@ -58,7 +70,7 @@ static ApiDumpRecordInfo g_record_info = {};
 static std::mutex g_record_mutex = {};
 
 // HTML utilities
-bool ApiDumpLayerWriteHtmlHeader(void) {
+bool ApiDumpLayerWriteHtmlHeader() {
     try {
         std::unique_lock<std::mutex> mlock(g_record_mutex);
         std::ofstream html_file;
@@ -167,7 +179,7 @@ bool ApiDumpLayerWriteHtmlHeader(void) {
     }
 }
 
-bool ApiDumpLayerWriteHtmlFooter(void) {
+bool ApiDumpLayerWriteHtmlFooter() {
     try {
         std::unique_lock<std::mutex> mlock(g_record_mutex);
         std::ofstream html_file;
@@ -210,7 +222,7 @@ bool ApiDumpLayerRecordContent(std::vector<std::tuple<std::string, std::string, 
         uint32_t count = 0;
         switch (g_record_info.type) {
             case RECORD_TEXT_COUT: {
-                for (auto content : contents) {
+                for (const auto &content : contents) {
                     std::string content_type;
                     std::string content_name;
                     std::string content_value;
@@ -218,7 +230,7 @@ bool ApiDumpLayerRecordContent(std::vector<std::tuple<std::string, std::string, 
                     if (count++ != 0) {
                         std::cout << "    ";
                     }
-                    if (content_value.size() > 0) {
+                    if (!content_value.empty()) {
                         std::cout << content_type << " " << content_name << " = " << content_value << "\n";
                     } else {
                         std::cout << content_type << " " << content_name << "\n";
@@ -230,7 +242,7 @@ bool ApiDumpLayerRecordContent(std::vector<std::tuple<std::string, std::string, 
             case RECORD_TEXT_FILE: {
                 std::ofstream text_file;
                 text_file.open(g_record_info.file_name, std::ios::out | std::ios::app);
-                for (auto content : contents) {
+                for (const auto &content : contents) {
                     std::string content_type;
                     std::string content_name;
                     std::string content_value;
@@ -238,7 +250,7 @@ bool ApiDumpLayerRecordContent(std::vector<std::tuple<std::string, std::string, 
                     if (count++ != 0) {
                         text_file << "    ";
                     }
-                    if (content_value.size() > 0) {
+                    if (!content_value.empty()) {
                         text_file << content_type << " " << content_name << " = " << content_value << "\n";
                     } else {
                         text_file << content_type << " " << content_name << "\n";
@@ -277,7 +289,7 @@ bool ApiDumpLayerRecordContent(std::vector<std::tuple<std::string, std::string, 
                         }
                         // Now look for array dereferences
                         start = 0;
-                        while ((start = content_name.find("[", start)) != std::string::npos) {
+                        while ((start = content_name.find('[', start)) != std::string::npos) {
                             ++cur_deref_count;
                             start++;
                         }
@@ -299,7 +311,7 @@ bool ApiDumpLayerRecordContent(std::vector<std::tuple<std::string, std::string, 
                             }
                             // Now look for array dereferences
                             start = 0;
-                            while ((start = next_content_name.find("[", start)) != std::string::npos) {
+                            while ((start = next_content_name.find('[', start)) != std::string::npos) {
                                 ++next_deref_count;
                                 start++;
                             }
@@ -309,7 +321,7 @@ bool ApiDumpLayerRecordContent(std::vector<std::tuple<std::string, std::string, 
                         // to close up those detail sections.
                         if (cur_deref_count < last_deref_count) {
                             uint32_t diff_count = last_deref_count - cur_deref_count;
-                            while (diff_count--) {
+                            while ((diff_count--) != 0u) {
                                 text_file << "   </details>\n";
                                 prefixes.pop_back();
                             }
@@ -358,7 +370,7 @@ bool ApiDumpLayerRecordContent(std::vector<std::tuple<std::string, std::string, 
                                 value_needs_printing = false;
                             }
                         }
-                        if (content_value.size() > 0 && value_needs_printing) {
+                        if (!content_value.empty() && value_needs_printing) {
                             text_file << "         <div class='val'>" << content_value << "</div>";
                         }
                         text_file << "\n";
@@ -376,8 +388,8 @@ bool ApiDumpLayerRecordContent(std::vector<std::tuple<std::string, std::string, 
                 }
 
                 // Wrap up any remaining items
-                if (last_deref_count) {
-                    while (last_deref_count--) {
+                if (last_deref_count != 0u) {
+                    while ((last_deref_count--) != 0u) {
                         text_file << "   </details>\n";
                         prefixes.pop_back();
                     }
@@ -392,7 +404,7 @@ bool ApiDumpLayerRecordContent(std::vector<std::tuple<std::string, std::string, 
     return success;
 }
 
-XrResult ApiDumpLayerXrCreateInstance(const XrInstanceCreateInfo *info, XrInstance *instance) {
+XrResult ApiDumpLayerXrCreateInstance(const XrInstanceCreateInfo * /*info*/, XrInstance * /*instance*/) {
     if (!g_record_info.initialized) {
         g_record_info.initialized = true;
         g_record_info.type = RECORD_TEXT_COUT;
@@ -413,32 +425,30 @@ XrResult ApiDumpLayerXrCreateApiLayerInstance(const XrInstanceCreateInfo *info, 
             g_record_info.type = RECORD_TEXT_COUT;
         }
 
-        char *export_type = PlatformUtilsGetEnv("XR_API_DUMP_EXPORT_TYPE");
-        char *file_name = PlatformUtilsGetEnv("XR_API_DUMP_FILE_NAME");
-        if (nullptr != file_name) {
+        std::string export_type = PlatformUtilsGetEnv("XR_API_DUMP_EXPORT_TYPE");
+        std::string file_name = PlatformUtilsGetEnv("XR_API_DUMP_FILE_NAME");
+        if (!file_name.empty()) {
             g_record_info.file_name = file_name;
             g_record_info.type = RECORD_TEXT_FILE;
-            PlatformUtilsFreeEnv(file_name);
         }
 
-        if (nullptr != export_type) {
-            std::string string_export_type = export_type;
-            PlatformUtilsFreeEnv(export_type);
-            std::transform(string_export_type.begin(), string_export_type.end(), string_export_type.begin(),
+        if (!export_type.empty()) {
+            std::string export_type_lower = export_type;
+            std::transform(export_type.begin(), export_type.end(), export_type_lower.begin(),
                            [](unsigned char c) { return std::tolower(c); });
 
-            if (string_export_type == "text") {
-                if (g_record_info.file_name.size() > 0) {
+            if (export_type_lower == "text") {
+                if (!g_record_info.file_name.empty()) {
                     g_record_info.type = RECORD_TEXT_FILE;
                 } else {
                     g_record_info.type = RECORD_TEXT_COUT;
                 }
-            } else if (string_export_type == "html" && first_time) {
+            } else if (export_type_lower == "html" && first_time) {
                 g_record_info.type = RECORD_HTML_FILE;
                 if (!ApiDumpLayerWriteHtmlHeader()) {
                     return XR_ERROR_INITIALIZATION_FAILED;
                 }
-            } else if (string_export_type == "code") {
+            } else if (export_type_lower == "code") {
                 g_record_info.type = RECORD_CODE_FILE;
             }
         }
@@ -446,8 +456,7 @@ XrResult ApiDumpLayerXrCreateApiLayerInstance(const XrInstanceCreateInfo *info, 
         // Validate the API layer info and next API layer info structures before we try to use them
         if (nullptr == apiLayerInfo || XR_LOADER_INTERFACE_STRUCT_API_LAYER_CREATE_INFO != apiLayerInfo->structType ||
             XR_API_LAYER_CREATE_INFO_STRUCT_VERSION > apiLayerInfo->structVersion ||
-            sizeof(XrApiLayerCreateInfo) > apiLayerInfo->structSize || nullptr == apiLayerInfo->loaderInstance ||
-            nullptr == apiLayerInfo->nextInfo ||
+            sizeof(XrApiLayerCreateInfo) > apiLayerInfo->structSize || nullptr == apiLayerInfo->nextInfo ||
             XR_LOADER_INTERFACE_STRUCT_API_LAYER_NEXT_INFO != apiLayerInfo->nextInfo->structType ||
             XR_API_LAYER_NEXT_INFO_STRUCT_VERSION > apiLayerInfo->nextInfo->structVersion ||
             sizeof(XrApiLayerNextInfo) > apiLayerInfo->nextInfo->structSize ||
@@ -459,79 +468,57 @@ XrResult ApiDumpLayerXrCreateApiLayerInstance(const XrInstanceCreateInfo *info, 
 
         // Generate output for this command as if it were the standard xrCreateInstance
         std::vector<std::tuple<std::string, std::string, std::string>> contents;
-        contents.push_back(std::make_tuple("XrResult", "xrCreateInstance", ""));
-        std::ostringstream oss_info;
-        oss_info << std::hex << reinterpret_cast<const void *>(info);
-        contents.push_back(std::make_tuple("const XrInstanceCreateInfo*", "info", oss_info.str()));
+        contents.emplace_back("XrResult", "xrCreateInstance", "");
+        contents.emplace_back("const XrInstanceCreateInfo*", "info", PointerToHexString(info));
         if (nullptr != info) {
-            std::string prefix = "info->";
-            contents.push_back(std::make_tuple("XrStructureType", "info->type", std::to_string(info->type)));
-            std::string next_prefix = prefix;
+            std::string info_prefix = "info->";
+            contents.emplace_back("XrStructureType", "info->type", std::to_string(info->type));
+            std::string next_prefix = info_prefix;
             next_prefix += "next";
             // Decode the next chain if it exists
             if (!ApiDumpDecodeNextChain(nullptr, info->next, next_prefix, contents)) {
                 throw std::invalid_argument("Invalid Operation");
             }
-            std::string flags_prefix = prefix;
+            std::string flags_prefix = info_prefix;
             flags_prefix += "createFlags";
-            contents.push_back(std::make_tuple("XrInstanceCreateFlags", flags_prefix, std::to_string(info->createFlags)));
-            std::string applicationinfo_prefix = prefix;
+            contents.emplace_back("XrInstanceCreateFlags", flags_prefix, std::to_string(info->createFlags));
+            std::string applicationinfo_prefix = info_prefix;
             applicationinfo_prefix += "applicationInfo";
             if (!ApiDumpOutputXrStruct(nullptr, &info->applicationInfo, applicationinfo_prefix, "XrApplicationInfo", true,
                                        contents)) {
                 throw std::invalid_argument("Invalid Operation");
             }
-            std::string enabledapilayercount_prefix = prefix;
+            std::string enabledapilayercount_prefix = info_prefix;
             enabledapilayercount_prefix += "enabledApiLayerCount";
             std::ostringstream oss_enabledApiLayerCount;
             oss_enabledApiLayerCount << "0x" << std::hex << (info->enabledApiLayerCount);
-            contents.push_back(std::make_tuple("uint32_t", enabledapilayercount_prefix, oss_enabledApiLayerCount.str()));
-            std::string enabledapilayernames_prefix = prefix;
+            contents.emplace_back("uint32_t", enabledapilayercount_prefix, oss_enabledApiLayerCount.str());
+            std::string enabledapilayernames_prefix = info_prefix;
             enabledapilayernames_prefix += "enabledApiLayerNames";
             std::ostringstream oss_enabledApiLayerNames_array;
             oss_enabledApiLayerNames_array << "0x" << std::hex << (info->enabledApiLayerNames);
-            contents.push_back(
-                std::make_tuple("const char* const*", enabledapilayernames_prefix, oss_enabledApiLayerNames_array.str()));
-            for (uint32_t info_enabledapilayernames_inc = 0; info_enabledapilayernames_inc < info->enabledApiLayerCount;
-                 ++info_enabledapilayernames_inc) {
-                std::string enabledapilayernames_array_prefix = enabledapilayernames_prefix;
-                enabledapilayernames_array_prefix += "[";
-                enabledapilayernames_array_prefix += std::to_string(info_enabledapilayernames_inc);
-                enabledapilayernames_array_prefix += "]";
-                std::ostringstream oss_enabledApiLayerNames;
-                oss_enabledApiLayerNames << "0x" << std::hex << (*info->enabledApiLayerNames[info_enabledapilayernames_inc]);
-                contents.push_back(
-                    std::make_tuple("const char* const*", enabledapilayernames_array_prefix, oss_enabledApiLayerNames.str()));
+            contents.emplace_back("const char* const*", enabledapilayernames_prefix, oss_enabledApiLayerNames_array.str());
+            for (uint32_t i = 0; i < info->enabledApiLayerCount; ++i) {
+                std::string prefix = enabledapilayernames_prefix + "[" + std::to_string(i) + "]";
+                contents.emplace_back("const char* const*", prefix, info->enabledApiLayerNames[i]);
             }
-            std::string enabledextensioncount_prefix = prefix;
+            std::string enabledextensioncount_prefix = info_prefix;
             enabledextensioncount_prefix += "enabledExtensionCount";
             std::ostringstream oss_enabledExtensionCount;
             oss_enabledExtensionCount << "0x" << std::hex << (info->enabledExtensionCount);
-            contents.push_back(std::make_tuple("uint32_t", enabledextensioncount_prefix, oss_enabledExtensionCount.str()));
-            std::string enabledextensionnames_prefix = prefix;
+            contents.emplace_back("uint32_t", enabledextensioncount_prefix, oss_enabledExtensionCount.str());
+            std::string enabledextensionnames_prefix = info_prefix;
             enabledextensionnames_prefix += "enabledExtensionNames";
             std::ostringstream oss_enabledExtensionNames_array;
             oss_enabledExtensionNames_array << "0x" << std::hex << (info->enabledExtensionNames);
-            contents.push_back(
-                std::make_tuple("const char* const*", enabledextensionnames_prefix, oss_enabledExtensionNames_array.str()));
-            for (uint32_t info_enabledextensionnames_inc = 0; info_enabledextensionnames_inc < info->enabledExtensionCount;
-                 ++info_enabledextensionnames_inc) {
-                std::string enabledextensionnames_array_prefix = enabledextensionnames_prefix;
-                enabledextensionnames_array_prefix += "[";
-                enabledextensionnames_array_prefix += std::to_string(info_enabledextensionnames_inc);
-                enabledextensionnames_array_prefix += "]";
-                std::ostringstream oss_enabledExtensionNames;
-                oss_enabledExtensionNames << "0x" << std::hex << (*info->enabledExtensionNames[info_enabledextensionnames_inc]);
-                contents.push_back(
-                    std::make_tuple("const char* const*", enabledextensionnames_array_prefix, oss_enabledExtensionNames.str()));
+            contents.emplace_back("const char* const*", enabledextensionnames_prefix, oss_enabledExtensionNames_array.str());
+            for (uint32_t ii = 0; ii < info->enabledExtensionCount; ++ii) {
+                std::string prefix = enabledextensionnames_prefix + "[" + std::to_string(ii) + "]";
+                contents.emplace_back("const char* const*", prefix, info->enabledExtensionNames[ii]);
             }
         }
 
-        std::ostringstream oss_instance;
-        oss_instance << std::hex << reinterpret_cast<uintptr_t>(instance);
-        std::string hex_instance = "0x";
-        hex_instance += oss_instance.str();
-        contents.push_back(std::make_tuple("XrInstance*", "instance", hex_instance));
+        contents.emplace_back("XrInstance*", "instance", PointerToHexString(instance));
         ApiDumpLayerRecordContent(contents);
 
         // Copy the contents of the layer info struct, but then move the next info up by
@@ -549,7 +536,7 @@ XrResult ApiDumpLayerXrCreateApiLayerInstance(const XrInstanceCreateInfo *info, 
         *instance = returned_instance;
 
         // Create the dispatch table to the next levels
-        XrGeneratedDispatchTable *next_dispatch = new XrGeneratedDispatchTable();
+        auto *next_dispatch = new XrGeneratedDispatchTable();
         GeneratedXrPopulateDispatchTable(next_dispatch, returned_instance, next_get_instance_proc_addr);
 
         std::unique_lock<std::mutex> mlock(g_instance_dispatch_mutex);
@@ -564,22 +551,27 @@ XrResult ApiDumpLayerXrCreateApiLayerInstance(const XrInstanceCreateInfo *info, 
 XrResult ApiDumpLayerXrDestroyInstance(XrInstance instance) {
     // Generate output for this command
     std::vector<std::tuple<std::string, std::string, std::string>> contents;
-    contents.push_back(std::make_tuple("XrResult", "xrDestroyInstance", ""));
-    std::ostringstream oss_instance;
-    oss_instance << std::hex << reinterpret_cast<const void *>(instance);
-    std::string hex_instance = "0x";
-    hex_instance += oss_instance.str();
-    contents.push_back(std::make_tuple("XrInstance", "instance", hex_instance));
+    contents.emplace_back("XrResult", "xrDestroyInstance", "");
+    contents.emplace_back("XrInstance", "instance", HandleToHexString(instance));
     ApiDumpLayerRecordContent(contents);
 
     std::unique_lock<std::mutex> mlock(g_instance_dispatch_mutex);
-    XrGeneratedDispatchTable *next_dispatch = g_instance_dispatch_map[instance];
+    XrGeneratedDispatchTable *next_dispatch = nullptr;
+    auto map_iter = g_instance_dispatch_map.find(instance);
+    if (map_iter != g_instance_dispatch_map.end()) {
+        next_dispatch = map_iter->second;
+    }
     mlock.unlock();
+
+    if (nullptr == next_dispatch) {
+        return XR_ERROR_HANDLE_INVALID;
+    }
+
     next_dispatch->DestroyInstance(instance);
     ApiDumpCleanUpMapsForTable(next_dispatch);
 
     // Write out the HTML footer if we destroy the last instance
-    if (g_instance_dispatch_map.size() == 0 && g_record_info.type == RECORD_HTML_FILE) {
+    if (g_instance_dispatch_map.empty() && g_record_info.type == RECORD_HTML_FILE) {
         ApiDumpLayerWriteHtmlFooter();
     }
     return XR_SUCCESS;
@@ -589,8 +581,9 @@ extern "C" {
 
 // Function used to negotiate an interface betewen the loader and an API layer.  Each library exposing one or
 // more API layers needs to expose at least this function.
-LAYER_EXPORT XrResult xrNegotiateLoaderApiLayerInterface(const XrNegotiateLoaderInfo *loaderInfo, const char *apiLayerName,
-                                                         XrNegotiateApiLayerRequest *apiLayerRequest) {
+XrResult LAYER_EXPORT XRAPI_CALL xrNegotiateLoaderApiLayerInterface(const XrNegotiateLoaderInfo *loaderInfo,
+                                                                    const char * /*apiLayerName*/,
+                                                                    XrNegotiateApiLayerRequest *apiLayerRequest) {
     if (nullptr == loaderInfo || nullptr == apiLayerRequest || loaderInfo->structType != XR_LOADER_INTERFACE_STRUCT_LOADER_INFO ||
         loaderInfo->structVersion != XR_LOADER_INFO_STRUCT_VERSION || loaderInfo->structSize != sizeof(XrNegotiateLoaderInfo) ||
         apiLayerRequest->structType != XR_LOADER_INTERFACE_STRUCT_API_LAYER_REQUEST ||
@@ -599,12 +592,12 @@ LAYER_EXPORT XrResult xrNegotiateLoaderApiLayerInterface(const XrNegotiateLoader
         loaderInfo->minInterfaceVersion > XR_CURRENT_LOADER_API_LAYER_VERSION ||
         loaderInfo->maxInterfaceVersion < XR_CURRENT_LOADER_API_LAYER_VERSION ||
         loaderInfo->maxInterfaceVersion > XR_CURRENT_LOADER_API_LAYER_VERSION ||
-        loaderInfo->maxXrVersion < XR_CURRENT_API_VERSION || loaderInfo->minXrVersion > XR_CURRENT_API_VERSION) {
+        loaderInfo->maxApiVersion < XR_CURRENT_API_VERSION || loaderInfo->minApiVersion > XR_CURRENT_API_VERSION) {
         return XR_ERROR_INITIALIZATION_FAILED;
     }
 
     apiLayerRequest->layerInterfaceVersion = XR_CURRENT_LOADER_API_LAYER_VERSION;
-    apiLayerRequest->layerXrVersion = XR_CURRENT_API_VERSION;
+    apiLayerRequest->layerApiVersion = XR_CURRENT_API_VERSION;
     apiLayerRequest->getInstanceProcAddr = reinterpret_cast<PFN_xrGetInstanceProcAddr>(ApiDumpLayerXrGetInstanceProcAddr);
     apiLayerRequest->createApiLayerInstance = reinterpret_cast<PFN_xrCreateApiLayerInstance>(ApiDumpLayerXrCreateApiLayerInstance);
 

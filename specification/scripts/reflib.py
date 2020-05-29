@@ -1,6 +1,8 @@
 #!/usr/bin/python3
 #
-# Copyright (c) 2016-2019 The Khronos Group Inc.
+# Copyright (c) 2016-2020 The Khronos Group Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -16,7 +18,9 @@
 
 # Utility functions for automatic ref page generation
 
-import io,os,re,sys
+import io
+import re
+import sys
 
 # global errFile, warnFile, diagFile
 
@@ -27,18 +31,18 @@ logSourcefile = None
 logProcname = None
 logLine = None
 
-# Remove \' escape sequences in a string (refpage description)
-def unescapeQuotes(str):
-    return str.replace('\\\'', '\'')
+def unescapeQuotes(s):
+    """Remove \' escape sequences in a string (refpage description)"""
+    return s.replace('\\\'', '\'')
 
 def write(*args, **kwargs ):
     file = kwargs.pop('file',sys.stdout)
     end = kwargs.pop('end','\n')
-    file.write(' '.join([str(arg) for arg in args]))
+    file.write(' '.join(str(arg) for arg in args))
     file.write(end)
 
-# Metadata which may be printed (if not None) for diagnostic messages
 def setLogSourcefile(filename):
+    """Metadata which may be printed (if not None) for diagnostic messages"""
     global logSourcefile
     logSourcefile = filename
 
@@ -50,8 +54,8 @@ def setLogLine(line):
     global logLine
     logLine = line
 
-# Generate prefix for a diagnostic line using metadata and severity
 def logHeader(severity):
+    """Generate prefix for a diagnostic line using metadata and severity"""
     global logSourcefile, logProcname, logLine
 
     msg = severity + ': '
@@ -63,15 +67,17 @@ def logHeader(severity):
         msg = msg + ' line ' + str(logLine)
     return msg + ' '
 
-# Set the file handle to log either or both warnings and diagnostics to.
-# setDiag and setWarn are True if the corresponding handle is to be set.
-# filename is None for no logging, '-' for stdout, or a pathname.
 def setLogFile(setDiag, setWarn, filename):
+    """Set the file handle to log either or both warnings and diagnostics to.
+
+    - setDiag and setWarn are True if the corresponding handle is to be set.
+    - filename is None for no logging, '-' for stdout, or a pathname."""
     global diagFile, warnFile
 
-    if filename == None:
+    if filename is None:
         return
-    elif filename == '-':
+
+    if filename == '-':
         fp = sys.stdout
     else:
         fp = open(filename, 'w', encoding='utf-8')
@@ -84,15 +90,15 @@ def setLogFile(setDiag, setWarn, filename):
 def logDiag(*args, **kwargs):
     file = kwargs.pop('file', diagFile)
     end = kwargs.pop('end','\n')
-    if file != None:
-        file.write(logHeader('DIAG') + ' '.join([str(arg) for arg in args]))
+    if file is not None:
+        file.write(logHeader('DIAG') + ' '.join(str(arg) for arg in args))
         file.write(end)
 
 def logWarn(*args, **kwargs):
     file = kwargs.pop('file', warnFile)
     end = kwargs.pop('end','\n')
-    if file != None:
-        file.write(logHeader('WARN') + ' '.join([str(arg) for arg in args]))
+    if file is not None:
+        file.write(logHeader('WARN') + ' '.join(str(arg) for arg in args))
         file.write(end)
 
 def logErr(*args, **kwargs):
@@ -100,65 +106,84 @@ def logErr(*args, **kwargs):
     end = kwargs.pop('end','\n')
 
     strfile = io.StringIO()
-    strfile.write(logHeader('ERROR') + ' '.join([str(arg) for arg in args]))
+    strfile.write(logHeader('ERROR') + ' '.join(str(arg) for arg in args))
     strfile.write(end)
 
-    if file != None:
+    if file is not None:
         file.write(strfile.getvalue())
     raise UserWarning(strfile.getvalue())
 
-# Return True if s is nothing but white space, False otherwise
 def isempty(s):
+    """Return True if s is nothing but white space, False otherwise"""
     return len(''.join(s.split())) == 0
 
-# pageInfo - information about a ref page relative to the file it's
-# extracted from.
-#
-#   extractPage - True if page should be extracted
-#   Warning - string warning if page is suboptimal or can't be generated
-#   embed - False or the name of the ref page this include is embedded within
-#
-#   type - 'structs', 'protos', 'funcpointers', 'flags', 'enums'
-#   name - struct/proto/enumerant/etc. name
-#   desc - short description of ref page
-#   begin - index of first line of the page (heuristic or // refBegin)
-#   include - index of include:: line defining the page
-#   param - index of first line of parameter/member definitions
-#   body - index of first line of body text
-#   validity - index of validity include
-#   end - index of last line of the page (heuristic validity include, or // refEnd)
-#   refs - cross-references on // refEnd line, if supplied
 class pageInfo:
+    """Information about a ref page relative to the file it's extracted from."""
     def __init__(self):
         self.extractPage = True
+        """True if page should be extracted"""
+
         self.Warning  = None
+        """string warning if page is suboptimal or can't be generated"""
+
         self.embed    = False
+        """False or the name of the ref page this include is embedded within"""
 
         self.type     = None
-        self.name     = None
-        self.desc     = None
-        self.begin    = None
-        self.include  = None
-        self.param    = None
-        self.body     = None
-        self.validity = None
-        self.end      = None
-        self.refs     = ''
+        """'structs', 'protos', 'funcpointers', 'flags', 'enums'"""
 
-# Print a single field of a pageInfo struct, possibly None
-#   desc - string description of field
-#   line - field value or None
-#   file - indexed by line
+        self.name     = None
+        """struct/proto/enumerant/etc. name"""
+
+        self.desc     = None
+        """short description of ref page"""
+
+        self.begin    = None
+        """index of first line of the page (heuristic or // refBegin)"""
+
+        self.include  = None
+        """index of include:: line defining the page"""
+
+        self.param    = None
+        """index of first line of parameter/member definitions"""
+
+        self.body     = None
+        """index of first line of body text"""
+
+        self.validity = None
+        """index of validity include"""
+
+        self.end      = None
+        """index of last line of the page (heuristic validity include, or // refEnd)"""
+
+        self.alias    = ''
+        """aliases of this name, if supplied, or ''"""
+
+        self.refs     = ''
+        """cross-references on // refEnd line, if supplied"""
+
+        self.spec     = None
+        """'spec' attribute in refpage open block, if supplied, or None for the default ('api') type"""
+
+        self.anchor   = None
+        """'anchor' attribute in refpage open block, if supplied, or inferred to be the same as the 'name'"""
+
 def printPageInfoField(desc, line, file):
-    if line != None:
+    """Print a single field of a pageInfo struct, possibly None.
+
+    - desc - string description of field
+    - line - field value or None
+    - file - indexed by line"""
+    if line is not None:
         logDiag(desc + ':', line + 1, '\t-> ', file[line], end='')
     else:
         logDiag(desc + ':', line)
 
-# Print out fields of a pageInfo struct
-#   pi - pageInfo
-#   file - indexed by pageInfo
 def printPageInfo(pi, file):
+    """Print out fields of a pageInfo struct
+
+    - pi - pageInfo
+    - file - indexed by pageInfo"""
     logDiag('TYPE:   ', pi.type)
     logDiag('NAME:   ', pi.name)
     logDiag('WARNING:', pi.Warning)
@@ -173,14 +198,15 @@ def printPageInfo(pi, file):
     printPageInfoField('END     ', pi.end,      file)
     logDiag('REFS: "' + pi.refs + '"')
 
-# Go back one paragraph from the specified line and return the line number
-# of the first line of that paragraph.
-#
-# Paragraphs are delimited by blank lines. It is assumed that the
-# current line is the first line of a paragraph.
-#   file is an array of strings
-#   line is the starting point (zero-based)
 def prevPara(file, line):
+    """Go back one paragraph from the specified line and return the line number
+    of the first line of that paragraph.
+
+    Paragraphs are delimited by blank lines. It is assumed that the
+    current line is the first line of a paragraph.
+
+    - file is an array of strings
+    - line is the starting point (zero-based)"""
     # Skip over current paragraph
     while (line >= 0 and not isempty(file[line])):
         line = line - 1
@@ -192,14 +218,15 @@ def prevPara(file, line):
         line = line - 1
     return line
 
-# Go forward one paragraph from the specified line and return the line
-# number of the first line of that paragraph.
-#
-# Paragraphs are delimited by blank lines. It is assumed that the
-# current line is standalone (which is bogus)
-#   file is an array of strings
-#   line is the starting point (zero-based)
 def nextPara(file, line):
+    """Go forward one paragraph from the specified line and return the line
+    number of the first line of that paragraph.
+
+    Paragraphs are delimited by blank lines. It is assumed that the
+    current line is standalone (which is bogus).
+
+    - file is an array of strings
+    - line is the starting point (zero-based)"""
     maxLine = len(file) - 1
     # Skip over current paragraph
     while (line != maxLine and not isempty(file[line])):
@@ -209,9 +236,9 @@ def nextPara(file, line):
         line = line + 1
     return line
 
-# Return (creating if needed) the pageInfo entry in pageMap for name
 def lookupPage(pageMap, name):
-    if not name in pageMap.keys():
+    """Return (creating if needed) the pageInfo entry in pageMap for name"""
+    if name not in pageMap:
         pi = pageInfo()
         pi.name = name
         pageMap[name] = pi
@@ -219,8 +246,8 @@ def lookupPage(pageMap, name):
         pi = pageMap[name]
     return pi
 
-# Load a file into a list of strings. Return the list or None on failure
 def loadFile(filename):
+    """Load a file into a list of strings. Return the list or None on failure"""
     try:
         fp = open(filename, 'r', encoding='utf-8')
     except:
@@ -232,25 +259,27 @@ def loadFile(filename):
 
     return file
 
-# Clamp a line number to be in the range [minline,maxline].
-# If the line number is None, just return it.
-# If minline is None, don't clamp to that value.
 def clampToBlock(line, minline, maxline):
-    if line == None:
-        return line
-    elif minline and line < minline:
-        return minline
-    elif line > maxline:
-        return maxline
-    else:
-        return line
+    """Clamp a line number to be in the range [minline,maxline].
 
-# Fill in missing fields in pageInfo structures, to the extent they can be
-# inferred.
-#   pageMap - dictionary of pageInfo structures
-#   specFile - filename
-#   file - list of strings making up the file, indexed by pageInfo
+    If the line number is None, just return it.
+    If minline is None, don't clamp to that value."""
+    if line is None:
+        return line
+    if minline and line < minline:
+        return minline
+    if line > maxline:
+        return maxline
+
+    return line
+
 def fixupRefs(pageMap, specFile, file):
+    """Fill in missing fields in pageInfo structures, to the extent they can be
+    inferred.
+
+    - pageMap - dictionary of pageInfo structures
+    - specFile - filename
+    - file - list of strings making up the file, indexed by pageInfo"""
     # All potential ref pages are now in pageMap. Process them to
     # identify actual page start/end/description boundaries, if
     # not already determined from the text.
@@ -264,7 +293,7 @@ def fixupRefs(pageMap, specFile, file):
         # # Examples include the host sync table includes in
         # # chapters/fundamentals.txt and the table of Vk*Flag types in
         # # appendices/boilerplate.txt.
-        # if pi.begin == None and pi.validity == None and pi.end == None:
+        # if pi.begin is None and pi.validity is None and pi.end is None:
         #     pi.begin = pi.include
         #     pi.extractPage = False
         #     pi.Warning = 'No begin, validity, or end lines identified'
@@ -272,22 +301,21 @@ def fixupRefs(pageMap, specFile, file):
 
         # Using open block delimiters, ref pages must *always* have a
         # defined begin and end. If either is undefined, that's fatal.
-        if pi.begin == None:
+        if pi.begin is None:
             pi.extractPage = False
             pi.Warning = 'Can\'t identify begin of ref page open block'
             continue
 
-        if pi.end == None:
+        if pi.end is None:
             pi.extractPage = False
             pi.Warning = 'Can\'t identify end of ref page open block'
             continue
 
         # If there's no description of the page, infer one from the type
-        if pi.desc == None:
-            if pi.type != None:
+        if pi.desc is None:
+            if pi.type is not None:
                 # pi.desc = pi.type[0:len(pi.type)-1] + ' (no short description available)'
                 pi.Warning = 'No short description available; could infer from the type and name'
-                True
             else:
                 pi.extractPage = False
                 pi.Warning = 'No short description available, cannot infer from the type'
@@ -297,13 +325,13 @@ def fixupRefs(pageMap, specFile, file):
         # begin. funcpointer, proto, and struct pages infer the location of
         # the parameter and body sections. Other pages infer the location of
         # the body, but have no parameter sections.
-        if pi.include != None:
+        if pi.include is not None:
             if pi.type in ['funcpointers', 'protos', 'structs']:
                 pi.param = nextPara(file, pi.include)
-                if pi.body == None:
+                if pi.body is None:
                     pi.body = nextPara(file, pi.param)
             else:
-                if pi.body == None:
+                if pi.body is None:
                     pi.body = nextPara(file, pi.include)
         else:
             pi.Warning = 'Page does not have an API definition include::'
@@ -329,7 +357,7 @@ def fixupRefs(pageMap, specFile, file):
     for name in sorted(pageMap.keys()):
         pi = pageMap[name]
 
-        if pi.end == None:
+        if pi.end is None:
             for embedName in sorted(pageMap.keys()):
                 logDiag('fixupRefs: comparing', pi.name, 'to', embedName)
                 embed = pageMap[embedName]
@@ -337,14 +365,14 @@ def fixupRefs(pageMap, specFile, file):
                 if not embed.extractPage:
                     logDiag('Skipping check for embedding in:', embed.name)
                     continue
-                if embed.begin == None or embed.end == None:
+                if embed.begin is None or embed.end is None:
                     logDiag('fixupRefs:', name + ':',
                             'can\'t compare to unanchored ref:', embed.name,
                             'in', specFile, 'at line', pi.include )
                     printPageInfo(pi, file)
                     printPageInfo(embed, file)
                 # If an embed is found, change the error to a warning
-                elif (pi.include != None and pi.include >= embed.begin and
+                elif (pi.include is not None and pi.include >= embed.begin and
                       pi.include <= embed.end):
                     logDiag('fixupRefs: Found embed for:', name,
                             'inside:', embedName,
@@ -361,20 +389,26 @@ def fixupRefs(pageMap, specFile, file):
 # Patterns used to recognize interesting lines in an asciidoc source file.
 # These patterns are only compiled once.
 INCSVAR_DEF = re.compile(r':INCS-VAR: (?P<value>.*)')
+endifPat   = re.compile(r'^endif::(?P<condition>[\w_+,]+)\[\]')
 beginPat   = re.compile(r'^\[open,(?P<attribs>refpage=.*)\]')
 # attribute key/value pairs of an open block
 attribStr  = r"([a-z]+)='([^'\\]*(?:\\.[^'\\]*)*)'"
 attribPat  = re.compile(attribStr)
-bodyPat    = re.compile('^// *refBody')
+bodyPat    = re.compile(r'^// *refBody')
+errorPat   = re.compile(r'^// *refError')
 
 # This regex transplanted from check_spec_links
+# It looks for either OpenXR or Vulkan generated file conventions, and for
+# the api/validity include (generated_type), protos/struct/etc path
+# (category), and API name (entity_name). It could be put into the API
+# conventions object.
 INCLUDE = re.compile(
-        r'include::(?P<directory_traverse>((../){1,4}|\{INCS-VAR\}/)(generated/)?)(?P<generated_type>[\w]+)/(?P<category>\w+)/(?P<entity_name>[^./]+).txt[\[][\]]')
+        r'include::(?P<directory_traverse>((../){1,4}|\{INCS-VAR\}/|\{generated\}/)(generated/)?)(?P<generated_type>[\w]+)/(?P<category>\w+)/(?P<entity_name>[^./]+).txt[\[][\]]')
 
 
-# Identify reference pages in a list of strings, returning a dictionary of
-# pageInfo entries for each one found, or None on failure.
 def findRefs(file, filename):
+    """Identify reference pages in a list of strings, returning a dictionary of
+    pageInfo entries for each one found, or None on failure."""
     setLogSourcefile(filename)
     setLogProcname('findRefs')
 
@@ -390,8 +424,8 @@ def findRefs(file, filename):
     #   'inside' - have found the following '--' line
     openBlockState = 'outside'
 
-    # This is a dictionary of interesting line numbers and strings related
-    # to an OpenXR API name
+    # Dictionary of interesting line numbers and strings related to an API
+    # name
     pageMap = {}
 
     numLines = len(file)
@@ -424,9 +458,14 @@ def findRefs(file, filename):
 
         # [open,refpage=...] starting a refpage block
         matches = beginPat.search(file[line])
-        if matches != None:
+        if matches is not None:
             logDiag('Matched open block pattern')
             attribs = matches.group('attribs')
+
+            # If the previous open block wasn't closed, raise an error
+            if openBlockState != 'outside':
+                logErr('Nested open block starting at line', line, 'of',
+                       filename)
 
             openBlockState = 'start'
 
@@ -436,7 +475,10 @@ def findRefs(file, filename):
             # Extract each attribute
             name = None
             desc = None
-            type = None
+            refpage_type = None
+            spec_type = None
+            anchor = None
+            alias = None
             xrefs = None
 
             for (key,value) in matches:
@@ -446,25 +488,37 @@ def findRefs(file, filename):
                 elif key == 'desc':
                     desc = unescapeQuotes(value)
                 elif key == 'type':
-                    type = value
+                    refpage_type = value
+                elif key == 'spec':
+                    spec_type = value
+                elif key == 'anchor':
+                    anchor = value
+                elif key == 'alias':
+                    alias = value
                 elif key == 'xrefs':
                     xrefs = value
                 else:
                     logWarn('unknown open block attribute:', key)
 
-            if name == None or desc == None or type == None:
+            if name is None or desc is None or refpage_type is None:
                 logWarn('missing one or more required open block attributes:'
                         'refpage, desc, or type')
-                # Leave pi == None so open block delimiters are ignored
+                # Leave pi is None so open block delimiters are ignored
             else:
                 pi = lookupPage(pageMap, name)
                 pi.desc = desc
                 # Must match later type definitions in interface/validity includes
-                pi.type = type
+                pi.type = refpage_type
+                pi.spec = spec_type
+                pi.anchor = anchor
+                if alias:
+                    pi.alias = alias
                 if xrefs:
                     pi.refs = xrefs
                 logDiag('open block for', name, 'added DESC =', desc,
-                        'TYPE =', type, 'XREFS =', xrefs)
+                        'TYPE =', refpage_type, 'ALIAS =', alias,
+                        'XREFS =', xrefs, 'SPEC =', spec_type,
+                        'ANCHOR =', anchor)
 
             line = line + 1
             continue
@@ -478,14 +532,14 @@ def findRefs(file, filename):
                 # -- delimiter following [open,refpage=...]
                 openBlockState = 'inside'
 
-                if pi == None:
+                if pi is None:
                     logWarn('no pageInfo available for opening -- delimiter')
                 else:
                     pi.begin = line + 1
                     logDiag('opening -- delimiter: added BEGIN =', pi.begin)
             elif openBlockState == 'inside':
                 # -- delimiter ending an open block
-                if pi == None:
+                if pi is None:
                     logWarn('no pageInfo available for closing -- delimiter')
                 else:
                     pi.end = line - 1
@@ -500,20 +554,20 @@ def findRefs(file, filename):
             continue
 
         matches = INCLUDE.search(file[line])
-        if matches != None:
+        if matches is not None:
             # Something got included, not sure what yet.
             gen_type = matches.group('generated_type')
-            type = matches.group('category')
+            refpage_type = matches.group('category')
             name = matches.group('entity_name')
 
-
+            # This will never match in OpenCL
             if gen_type == 'validity':
                 logDiag('Matched validity pattern')
-                if pi != None:
-                    if pi.type and type != pi.type:
+                if pi is not None:
+                    if pi.type and refpage_type != pi.type:
                         logWarn('ERROR: pageMap[' + name + '] type:',
-                                pi.type, 'does not match type:', type)
-                    pi.type = type
+                                pi.type, 'does not match type:', refpage_type)
+                    pi.type = refpage_type
                     pi.validity = line
                     logDiag('added TYPE =', pi.type, 'VALIDITY =', pi.validity)
                 else:
@@ -524,11 +578,13 @@ def findRefs(file, filename):
 
             if gen_type == 'api':
                 logDiag('Matched include pattern')
-                if pi != None:
-                    if pi.type and type != pi.type:
+                if pi is not None:
+                    if pi.include is not None:
+                        logDiag('found multiple includes for this block')
+                    if pi.type and refpage_type != pi.type:
                         logWarn('ERROR: pageMap[' + name + '] type:',
-                                pi.type, 'does not match type:', type)
-                    pi.type = type
+                                pi.type, 'does not match type:', refpage_type)
+                    pi.type = refpage_type
                     pi.include = line
                     logDiag('added TYPE =', pi.type, 'INCLUDE =', pi.include)
                 else:
@@ -539,10 +595,26 @@ def findRefs(file, filename):
 
             logDiag('ignoring unrecognized include line ', matches.group())
 
+        # Vulkan 1.1 markup allows the last API include construct to be
+        # followed by an asciidoctor endif:: construct (and also preceded,
+        # at some distance).
+        # This looks for endif:: immediately following an include:: line
+        # and, if found, moves the include boundary to this line.
+        matches = endifPat.search(file[line])
+        if matches is not None and pi is not None:
+            if pi.include == line - 1:
+                logDiag('Matched endif pattern following include; moving include')
+                pi.include = line
+            else:
+                logDiag('Matched endif pattern (not following include)')
+
+            line = line + 1
+            continue
+
         matches = bodyPat.search(file[line])
-        if matches != None:
+        if matches is not None:
             logDiag('Matched // refBody pattern')
-            if pi != None:
+            if pi is not None:
                 pi.body = line
                 logDiag('added BODY =', pi.body)
             else:
@@ -551,10 +623,24 @@ def findRefs(file, filename):
             line = line + 1
             continue
 
+        # OpenCL spec uses // refError to tag "validity" (Errors) language,
+        # instead of /validity/ includes.
+        matches = errorPat.search(file[line])
+        if matches is not None:
+            logDiag('Matched // refError pattern')
+            if pi is not None:
+                pi.validity = line
+                logDiag('added VALIDITY (refError) =', pi.validity)
+            else:
+                logWarn('// refError line NOT inside block')
+
+            line = line + 1
+            continue
+
         line = line + 1
         continue
 
-    if pi != None:
+    if pi is not None:
         logErr('Unclosed open block at EOF!')
 
     setLogSourcefile(None)
@@ -562,4 +648,3 @@ def findRefs(file, filename):
     setLogLine(None)
 
     return pageMap
-

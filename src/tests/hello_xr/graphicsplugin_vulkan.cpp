@@ -146,7 +146,7 @@ struct MemoryAllocator {
                   const void* pNext = nullptr) const {
         // Search memtypes to find first index with those properties
         for (uint32_t i = 0; i < m_memProps.memoryTypeCount; ++i) {
-            if (memReqs.memoryTypeBits & (1 << i)) {
+            if ((memReqs.memoryTypeBits & (1 << i)) != 0u) {
                 // Type is available, does it match user properties?
                 if ((m_memProps.memoryTypes[i].propertyFlags & flags) == flags) {
                     VkMemoryAllocateInfo memAlloc{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO, pNext};
@@ -183,20 +183,30 @@ struct CmdBuffer {
     VkCommandBuffer buf{VK_NULL_HANDLE};
     VkFence execFence{VK_NULL_HANDLE};
 
-    CmdBuffer() {}
+    CmdBuffer() = default;
 
-    CmdBuffer(const CmdBuffer& that) = delete;
+    CmdBuffer(const CmdBuffer&) = delete;
+    CmdBuffer& operator=(const CmdBuffer&) = delete;
+    CmdBuffer(CmdBuffer&&) = delete;
+    CmdBuffer& operator=(CmdBuffer&&) = delete;
 
     ~CmdBuffer() {
         SetState(CmdBufferState::Undefined);
-        if (m_vkDevice) {
-            if (buf) vkFreeCommandBuffers(m_vkDevice, pool, 1, &buf);
-            if (pool) vkDestroyCommandPool(m_vkDevice, pool, nullptr);
-            if (execFence) vkDestroyFence(m_vkDevice, execFence, nullptr);
+        if (m_vkDevice != nullptr) {
+            if (buf != VK_NULL_HANDLE) {
+                vkFreeCommandBuffers(m_vkDevice, pool, 1, &buf);
+            }
+            if (pool != VK_NULL_HANDLE) {
+                vkDestroyCommandPool(m_vkDevice, pool, nullptr);
+            }
+            if (execFence != VK_NULL_HANDLE) {
+                vkDestroyFence(m_vkDevice, execFence, nullptr);
+            }
         }
-        buf = nullptr;
+        buf = VK_NULL_HANDLE;
         pool = VK_NULL_HANDLE;
         execFence = VK_NULL_HANDLE;
+        m_vkDevice = nullptr;
     }
 
     std::string StateString(CmdBufferState s) {
@@ -210,13 +220,13 @@ struct CmdBuffer {
         return "(Unknown)";
     }
 
-#define CHECK_CBSTATE(s)                                                                                                           \
-    do                                                                                                                             \
-        if (state != (s)) {                                                                                                        \
-            (std::string(__FILE__) + "(" + std::to_string(__LINE__) + "): Expecting state " #s " from " + __FUNCTION__ + ", in " + \
-             StateString(state));                                                                                                  \
-            return false;                                                                                                          \
-        }                                                                                                                          \
+#define CHECK_CBSTATE(s)                                                                                           \
+    do                                                                                                             \
+        if (state != (s)) {                                                                                        \
+            Log::Write(Log::Level::Error,                                                                          \
+                       std::string("Expecting state " #s " from ") + __FUNCTION__ + ", in " + StateString(state)); \
+            return false;                                                                                          \
+        }                                                                                                          \
     while (0)
 
     bool Init(VkDevice device, uint32_t queueFamilyIndex) {
@@ -273,7 +283,9 @@ struct CmdBuffer {
 
     bool Wait() {
         // Waiting on a not-in-flight command buffer is a no-op
-        if (state == CmdBufferState::Initialized) return true;
+        if (state == CmdBufferState::Initialized) {
+            return true;
+        }
 
         CHECK_CBSTATE(CmdBufferState::Executing);
 
@@ -318,17 +330,25 @@ struct ShaderProgram {
     std::array<VkPipelineShaderStageCreateInfo, 2> shaderInfo{
         {{VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO}, {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO}}};
 
-    ShaderProgram() {}
+    ShaderProgram() = default;
 
     ~ShaderProgram() {
-        if (m_vkDevice) {
+        if (m_vkDevice != nullptr) {
             for (auto& si : shaderInfo) {
-                if (si.module) vkDestroyShaderModule(m_vkDevice, shaderInfo[0].module, nullptr);
+                if (si.module != VK_NULL_HANDLE) {
+                    vkDestroyShaderModule(m_vkDevice, shaderInfo[0].module, nullptr);
+                }
                 si.module = VK_NULL_HANDLE;
             }
         }
         shaderInfo = {};
+        m_vkDevice = nullptr;
     }
+
+    ShaderProgram(const ShaderProgram&) = delete;
+    ShaderProgram& operator=(const ShaderProgram&) = delete;
+    ShaderProgram(ShaderProgram&&) = delete;
+    ShaderProgram& operator=(ShaderProgram&&) = delete;
 
     void LoadVertexShader(const std::vector<uint32_t>& code) { Load(0, code); }
 
@@ -339,7 +359,7 @@ struct ShaderProgram {
    private:
     VkDevice m_vkDevice{VK_NULL_HANDLE};
 
-    const void Load(uint32_t index, const std::vector<uint32_t>& code) {
+    void Load(uint32_t index, const std::vector<uint32_t>& code) {
         VkShaderModuleCreateInfo modInfo{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
 
         auto& si = shaderInfo[index];
@@ -382,14 +402,22 @@ struct VertexBufferBase {
         uint32_t vtx;
     } count = {0, 0};
 
-    VertexBufferBase() {}
+    VertexBufferBase() = default;
 
     ~VertexBufferBase() {
-        if (m_vkDevice) {
-            if (idxBuf) vkDestroyBuffer(m_vkDevice, idxBuf, nullptr);
-            if (idxMem) vkFreeMemory(m_vkDevice, idxMem, nullptr);
-            if (vtxBuf) vkDestroyBuffer(m_vkDevice, vtxBuf, nullptr);
-            if (vtxMem) vkFreeMemory(m_vkDevice, vtxMem, nullptr);
+        if (m_vkDevice != nullptr) {
+            if (idxBuf != VK_NULL_HANDLE) {
+                vkDestroyBuffer(m_vkDevice, idxBuf, nullptr);
+            }
+            if (idxMem != VK_NULL_HANDLE) {
+                vkFreeMemory(m_vkDevice, idxMem, nullptr);
+            }
+            if (vtxBuf != VK_NULL_HANDLE) {
+                vkDestroyBuffer(m_vkDevice, vtxBuf, nullptr);
+            }
+            if (vtxMem != VK_NULL_HANDLE) {
+                vkFreeMemory(m_vkDevice, vtxMem, nullptr);
+            }
         }
         idxBuf = VK_NULL_HANDLE;
         idxMem = VK_NULL_HANDLE;
@@ -398,8 +426,13 @@ struct VertexBufferBase {
         bindDesc = {};
         attrDesc.clear();
         count = {0, 0};
+        m_vkDevice = nullptr;
     }
 
+    VertexBufferBase(const VertexBufferBase&) = delete;
+    VertexBufferBase& operator=(const VertexBufferBase&) = delete;
+    VertexBufferBase(VertexBufferBase&&) = delete;
+    VertexBufferBase& operator=(VertexBufferBase&&) = delete;
     void Init(VkDevice device, const MemoryAllocator* memAllocator, const std::vector<VkVertexInputAttributeDescription>& attr) {
         m_vkDevice = device;
         m_memAllocator = memAllocator;
@@ -447,14 +480,18 @@ struct VertexBuffer : public VertexBufferBase {
     void UpdateIndicies(const uint16_t* data, uint32_t elements, uint32_t offset = 0) {
         uint16_t* map = nullptr;
         CHECK_VKCMD(vkMapMemory(m_vkDevice, idxMem, sizeof(map[0]) * offset, sizeof(map[0]) * elements, 0, (void**)&map));
-        for (size_t i = 0; i < elements; ++i) map[i] = data[i];
+        for (size_t i = 0; i < elements; ++i) {
+            map[i] = data[i];
+        }
         vkUnmapMemory(m_vkDevice, idxMem);
     }
 
     void UpdateVertices(const T* data, uint32_t elements, uint32_t offset = 0) {
         T* map = nullptr;
         CHECK_VKCMD(vkMapMemory(m_vkDevice, vtxMem, sizeof(map[0]) * offset, sizeof(map[0]) * elements, 0, (void**)&map));
-        for (size_t i = 0; i < elements; ++i) map[i] = data[i];
+        for (size_t i = 0; i < elements; ++i) {
+            map[i] = data[i];
+        }
         vkUnmapMemory(m_vkDevice, vtxMem);
     }
 };
@@ -465,7 +502,7 @@ struct RenderPass {
     VkFormat depthFmt{};
     VkRenderPass pass{VK_NULL_HANDLE};
 
-    RenderPass() {}
+    RenderPass() = default;
 
     bool Create(VkDevice device, VkFormat aColorFmt, VkFormat aDepthFmt) {
         m_vkDevice = device;
@@ -523,11 +560,19 @@ struct RenderPass {
     }
 
     ~RenderPass() {
-        if (m_vkDevice) {
-            if (pass) vkDestroyRenderPass(m_vkDevice, pass, nullptr);
+        if (m_vkDevice != nullptr) {
+            if (pass != VK_NULL_HANDLE) {
+                vkDestroyRenderPass(m_vkDevice, pass, nullptr);
+            }
         }
         pass = VK_NULL_HANDLE;
+        m_vkDevice = nullptr;
     }
+
+    RenderPass(const RenderPass&) = delete;
+    RenderPass& operator=(const RenderPass&) = delete;
+    RenderPass(RenderPass&&) = delete;
+    RenderPass& operator=(RenderPass&&) = delete;
 
    private:
     VkDevice m_vkDevice{VK_NULL_HANDLE};
@@ -541,13 +586,19 @@ struct RenderTarget {
     VkImageView depthView{VK_NULL_HANDLE};
     VkFramebuffer fb{VK_NULL_HANDLE};
 
-    RenderTarget() {}
+    RenderTarget() = default;
 
     ~RenderTarget() {
-        if (m_vkDevice) {
-            if (fb) vkDestroyFramebuffer(m_vkDevice, fb, nullptr);
-            if (colorView) vkDestroyImageView(m_vkDevice, colorView, nullptr);
-            if (depthView) vkDestroyImageView(m_vkDevice, depthView, nullptr);
+        if (m_vkDevice != nullptr) {
+            if (fb != VK_NULL_HANDLE) {
+                vkDestroyFramebuffer(m_vkDevice, fb, nullptr);
+            }
+            if (colorView != VK_NULL_HANDLE) {
+                vkDestroyImageView(m_vkDevice, colorView, nullptr);
+            }
+            if (depthView != VK_NULL_HANDLE) {
+                vkDestroyImageView(m_vkDevice, depthView, nullptr);
+            }
         }
 
         // Note we don't own color/depthImage, it will get destroyed when xrDestroySwapchain is called
@@ -556,8 +607,33 @@ struct RenderTarget {
         colorView = VK_NULL_HANDLE;
         depthView = VK_NULL_HANDLE;
         fb = VK_NULL_HANDLE;
+        m_vkDevice = nullptr;
     }
 
+    RenderTarget(RenderTarget&& other) noexcept : RenderTarget() {
+        using std::swap;
+        swap(colorImage, other.colorImage);
+        swap(depthImage, other.depthImage);
+        swap(colorView, other.colorView);
+        swap(depthView, other.depthView);
+        swap(fb, other.fb);
+        swap(m_vkDevice, other.m_vkDevice);
+    }
+    RenderTarget& operator=(RenderTarget&& other) noexcept {
+        if (&other == this) {
+            return *this;
+        }
+        // Clean up ourselves.
+        this->~RenderTarget();
+        using std::swap;
+        swap(colorImage, other.colorImage);
+        swap(depthImage, other.depthImage);
+        swap(colorView, other.colorView);
+        swap(depthView, other.depthView);
+        swap(fb, other.fb);
+        swap(m_vkDevice, other.m_vkDevice);
+        return *this;
+    }
     void Create(VkDevice device, VkImage aColorImage, VkImage aDepthImage, VkExtent2D size, RenderPass& renderPass) {
         m_vkDevice = device;
 
@@ -568,7 +644,7 @@ struct RenderTarget {
         uint32_t attachmentCount = 0;
 
         // Create color image view
-        if (colorImage) {
+        if (colorImage != VK_NULL_HANDLE) {
             VkImageViewCreateInfo colorViewInfo{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
             colorViewInfo.image = colorImage;
             colorViewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
@@ -587,7 +663,7 @@ struct RenderTarget {
         }
 
         // Create depth image view
-        if (depthImage) {
+        if (depthImage != VK_NULL_HANDLE) {
             VkImageViewCreateInfo depthViewInfo{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
             depthViewInfo.image = depthImage;
             depthViewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
@@ -615,6 +691,9 @@ struct RenderTarget {
         CHECK_VKCMD(vkCreateFramebuffer(m_vkDevice, &fbInfo, nullptr, &fb));
     }
 
+    RenderTarget(const RenderTarget&) = delete;
+    RenderTarget& operator=(const RenderTarget&) = delete;
+
    private:
     VkDevice m_vkDevice{VK_NULL_HANDLE};
 };
@@ -623,13 +702,16 @@ struct RenderTarget {
 struct PipelineLayout {
     VkPipelineLayout layout{VK_NULL_HANDLE};
 
-    PipelineLayout() {}
+    PipelineLayout() = default;
 
     ~PipelineLayout() {
-        if (m_vkDevice) {
-            if (layout) vkDestroyPipelineLayout(m_vkDevice, layout, nullptr);
+        if (m_vkDevice != nullptr) {
+            if (layout != VK_NULL_HANDLE) {
+                vkDestroyPipelineLayout(m_vkDevice, layout, nullptr);
+            }
         }
         layout = VK_NULL_HANDLE;
+        m_vkDevice = nullptr;
     }
 
     void Create(VkDevice device) {
@@ -647,6 +729,11 @@ struct PipelineLayout {
         CHECK_VKCMD(vkCreatePipelineLayout(m_vkDevice, &pipelineLayoutCreateInfo, nullptr, &layout));
     }
 
+    PipelineLayout(const PipelineLayout&) = delete;
+    PipelineLayout& operator=(const PipelineLayout&) = delete;
+    PipelineLayout(PipelineLayout&&) = delete;
+    PipelineLayout& operator=(PipelineLayout&&) = delete;
+
    private:
     VkDevice m_vkDevice{VK_NULL_HANDLE};
 };
@@ -657,7 +744,7 @@ struct Pipeline {
     VkPrimitiveTopology topology{VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST};
     std::vector<VkDynamicState> dynamicStateEnables;
 
-    Pipeline() {}
+    Pipeline() = default;
 
     void Dynamic(VkDynamicState state) { dynamicStateEnables.emplace_back(state); }
 
@@ -764,10 +851,13 @@ struct Pipeline {
     }
 
     void Release() {
-        if (m_vkDevice) {
-            if (pipe) vkDestroyPipeline(m_vkDevice, pipe, nullptr);
+        if (m_vkDevice != nullptr) {
+            if (pipe != VK_NULL_HANDLE) {
+                vkDestroyPipeline(m_vkDevice, pipe, nullptr);
+            }
         }
         pipe = VK_NULL_HANDLE;
+        m_vkDevice = nullptr;
     }
 
    private:
@@ -778,11 +868,41 @@ struct DepthBuffer {
     VkDeviceMemory depthMemory{VK_NULL_HANDLE};
     VkImage depthImage{VK_NULL_HANDLE};
 
-    DepthBuffer() {}
+    DepthBuffer() = default;
 
     ~DepthBuffer() {
-        if (depthImage) vkDestroyImage(m_vkDevice, depthImage, nullptr);
-        if (depthMemory) vkFreeMemory(m_vkDevice, depthMemory, nullptr);
+        if (m_vkDevice != nullptr) {
+            if (depthImage != VK_NULL_HANDLE) {
+                vkDestroyImage(m_vkDevice, depthImage, nullptr);
+            }
+            if (depthMemory != VK_NULL_HANDLE) {
+                vkFreeMemory(m_vkDevice, depthMemory, nullptr);
+            }
+        }
+        depthImage = VK_NULL_HANDLE;
+        depthMemory = VK_NULL_HANDLE;
+        m_vkDevice = nullptr;
+    }
+
+    DepthBuffer(DepthBuffer&& other) noexcept : DepthBuffer() {
+        using std::swap;
+
+        swap(depthImage, other.depthImage);
+        swap(depthMemory, other.depthMemory);
+        swap(m_vkDevice, other.m_vkDevice);
+    }
+    DepthBuffer& operator=(DepthBuffer&& other) noexcept {
+        if (&other == this) {
+            return *this;
+        }
+        // clean up self
+        this->~DepthBuffer();
+        using std::swap;
+
+        swap(depthImage, other.depthImage);
+        swap(depthMemory, other.depthMemory);
+        swap(m_vkDevice, other.m_vkDevice);
+        return *this;
     }
 
     void Create(VkDevice device, MemoryAllocator* memAllocator, VkFormat depthFormat,
@@ -813,6 +933,9 @@ struct DepthBuffer {
         CHECK_VKCMD(vkBindImageMemory(device, depthImage, depthMemory, 0));
     }
 
+    DepthBuffer(const DepthBuffer&) = delete;
+    DepthBuffer& operator=(const DepthBuffer&) = delete;
+
    private:
     VkDevice m_vkDevice{VK_NULL_HANDLE};
 };
@@ -826,7 +949,7 @@ struct SwapchainImageContext {
     RenderPass rp{};
     Pipeline pipe{};
 
-    SwapchainImageContext() {}
+    SwapchainImageContext() = default;
 
     std::vector<XrSwapchainImageBaseHeader*> Create(VkDevice device, MemoryAllocator* memAllocator, uint32_t capacity,
                                                     const XrSwapchainCreateInfo& swapchainCreateInfo, const PipelineLayout& layout,
@@ -850,7 +973,7 @@ struct SwapchainImageContext {
             bases[i] = reinterpret_cast<XrSwapchainImageBaseHeader*>(&swapchainImages[i]);
         }
 
-        return std::move(bases);
+        return bases;
     }
 
     uint32_t ImageIndex(const XrSwapchainImageBaseHeader* swapchainImageHeader) {
@@ -919,6 +1042,8 @@ struct Swapchain {
             UnregisterClassW(L"hello_xr", hInst);
         }
 #endif
+
+        m_vkDevice = nullptr;
     }
     void Recreate() {
         Release();
@@ -1100,15 +1225,17 @@ void Swapchain::Present(VkQueue queue, VkSemaphore drawComplete) {
 #endif  // defined(USE_MIRROR_WINDOW)
 
 struct VulkanGraphicsPlugin : public IGraphicsPlugin {
-    VulkanGraphicsPlugin(const std::shared_ptr<Options>&, std::shared_ptr<IPlatformPlugin>){};
+    VulkanGraphicsPlugin(const std::shared_ptr<Options>& /*unused*/, std::shared_ptr<IPlatformPlugin> /*unused*/){};
 
     std::vector<std::string> GetInstanceExtensions() const override { return {XR_KHR_VULKAN_ENABLE_EXTENSION_NAME}; }
 
+    // Note: The output must not outlive the input - this modifies the input and returns a collection of views into that modified
+    // input!
     std::vector<const char*> ParseExtensionString(char* names) {
         std::vector<const char*> list;
-        while (*names) {
+        while (*names != 0) {
             list.push_back(names);
-            while (*(++names)) {
+            while (*(++names) != 0) {
                 if (*names == ' ') {
                     *names++ = '\0';
                     break;
@@ -1120,39 +1247,50 @@ struct VulkanGraphicsPlugin : public IGraphicsPlugin {
 
     void InitializeDevice(XrInstance instance, XrSystemId systemId) override {
         // Create the Vulkan device for the adapter associated with the system.
+        // Extension function must be loaded by name
+        PFN_xrGetVulkanGraphicsRequirementsKHR pfnGetVulkanGraphicsRequirementsKHR = nullptr;
+        CHECK_XRCMD(xrGetInstanceProcAddr(instance, "xrGetVulkanGraphicsRequirementsKHR",
+                                          reinterpret_cast<PFN_xrVoidFunction*>(&pfnGetVulkanGraphicsRequirementsKHR)));
+
+        PFN_xrGetVulkanInstanceExtensionsKHR pfnGetVulkanInstanceExtensionsKHR = nullptr;
+        CHECK_XRCMD(xrGetInstanceProcAddr(instance, "xrGetVulkanInstanceExtensionsKHR",
+                                          reinterpret_cast<PFN_xrVoidFunction*>(&pfnGetVulkanInstanceExtensionsKHR)));
+
         XrGraphicsRequirementsVulkanKHR graphicsRequirements{XR_TYPE_GRAPHICS_REQUIREMENTS_VULKAN_KHR};
-        CHECK_XRCMD(xrGetVulkanGraphicsRequirementsKHR(instance, systemId, &graphicsRequirements));
+        CHECK_XRCMD(pfnGetVulkanGraphicsRequirementsKHR(instance, systemId, &graphicsRequirements));
 
         uint32_t extensionNamesSize = 0;
-        CHECK_XRCMD(xrGetVulkanInstanceExtensionsKHR(instance, systemId, 0, &extensionNamesSize, nullptr));
+        CHECK_XRCMD(pfnGetVulkanInstanceExtensionsKHR(instance, systemId, 0, &extensionNamesSize, nullptr));
         std::vector<char> extensionNames(extensionNamesSize);
         CHECK_XRCMD(
-            xrGetVulkanInstanceExtensionsKHR(instance, systemId, extensionNamesSize, &extensionNamesSize, &extensionNames[0]));
+            pfnGetVulkanInstanceExtensionsKHR(instance, systemId, extensionNamesSize, &extensionNamesSize, &extensionNames[0]));
 
-        std::vector<const char*> extensions = ParseExtensionString(&extensionNames[0]);
-        extensions.push_back("VK_EXT_debug_report");
+        {
+            // Note: This cannot outlive the extensionNames above, since it's just a collection of views into that string!
+            std::vector<const char*> extensions = ParseExtensionString(&extensionNames[0]);
+            extensions.push_back("VK_EXT_debug_report");
 
-        std::vector<const char*> layers;
+            std::vector<const char*> layers;
 #if defined(_DEBUG)
-        layers.push_back("VK_LAYER_LUNARG_standard_validation");
+            layers.push_back("VK_LAYER_LUNARG_standard_validation");
 #endif
 
-        VkApplicationInfo appInfo{VK_STRUCTURE_TYPE_APPLICATION_INFO};
-        appInfo.pApplicationName = "hello_xr";
-        appInfo.applicationVersion = 1;
-        appInfo.pEngineName = "hello_xr";
-        appInfo.engineVersion = 1;
-        appInfo.apiVersion = VK_API_VERSION_1_0;
+            VkApplicationInfo appInfo{VK_STRUCTURE_TYPE_APPLICATION_INFO};
+            appInfo.pApplicationName = "hello_xr";
+            appInfo.applicationVersion = 1;
+            appInfo.pEngineName = "hello_xr";
+            appInfo.engineVersion = 1;
+            appInfo.apiVersion = VK_API_VERSION_1_0;
 
-        VkInstanceCreateInfo instInfo{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
-        instInfo.pApplicationInfo = &appInfo;
-        instInfo.enabledLayerCount = (uint32_t)layers.size();
-        instInfo.ppEnabledLayerNames = layers.size() ? &layers[0] : nullptr;
-        instInfo.enabledExtensionCount = (uint32_t)extensions.size();
-        instInfo.ppEnabledExtensionNames = extensions.size() ? &extensions[0] : nullptr;
+            VkInstanceCreateInfo instInfo{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
+            instInfo.pApplicationInfo = &appInfo;
+            instInfo.enabledLayerCount = (uint32_t)layers.size();
+            instInfo.ppEnabledLayerNames = layers.empty() ? nullptr : layers.data();
+            instInfo.enabledExtensionCount = (uint32_t)extensions.size();
+            instInfo.ppEnabledExtensionNames = extensions.empty() ? nullptr : extensions.data();
 
-        CHECK_VKCMD(vkCreateInstance(&instInfo, nullptr, &m_vkInstance));
-
+            CHECK_VKCMD(vkCreateInstance(&instInfo, nullptr, &m_vkInstance));
+        }
         vkCreateDebugReportCallbackEXT =
             (PFN_vkCreateDebugReportCallbackEXT)vkGetInstanceProcAddr(m_vkInstance, "vkCreateDebugReportCallbackEXT");
         vkDestroyDebugReportCallbackEXT =
@@ -1167,7 +1305,11 @@ struct VulkanGraphicsPlugin : public IGraphicsPlugin {
         debugInfo.pUserData = this;
         CHECK_VKCMD(vkCreateDebugReportCallbackEXT(m_vkInstance, &debugInfo, nullptr, &m_vkDebugReporter));
 
-        CHECK_XRCMD(xrGetVulkanGraphicsDeviceKHR(instance, systemId, m_vkInstance, &m_vkPhysicalDevice));
+        PFN_xrGetVulkanGraphicsDeviceKHR pfnGetVulkanGraphicsDeviceKHR = nullptr;
+        CHECK_XRCMD(xrGetInstanceProcAddr(instance, "xrGetVulkanGraphicsDeviceKHR",
+                                          reinterpret_cast<PFN_xrVoidFunction*>(&pfnGetVulkanGraphicsDeviceKHR)));
+
+        CHECK_XRCMD(pfnGetVulkanGraphicsDeviceKHR(instance, systemId, m_vkInstance, &m_vkPhysicalDevice));
 
         VkDeviceQueueCreateInfo queueInfo{VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
         float queuePriorities = 0;
@@ -1181,17 +1323,21 @@ struct VulkanGraphicsPlugin : public IGraphicsPlugin {
 
         for (uint32_t i = 0; i < queueFamilyCount; ++i) {
             // Only need graphics (not presentation) for draw queue
-            if (queueFamilyProps[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) {
+            if ((queueFamilyProps[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) != 0u) {
                 m_queueFamilyIndex = queueInfo.queueFamilyIndex = i;
                 break;
             }
         }
 
+        PFN_xrGetVulkanDeviceExtensionsKHR pfnGetVulkanDeviceExtensionsKHR = nullptr;
+        CHECK_XRCMD(xrGetInstanceProcAddr(instance, "xrGetVulkanDeviceExtensionsKHR",
+                                          reinterpret_cast<PFN_xrVoidFunction*>(&pfnGetVulkanDeviceExtensionsKHR)));
+
         uint32_t deviceExtensionNamesSize = 0;
-        CHECK_XRCMD(xrGetVulkanDeviceExtensionsKHR(instance, systemId, 0, &deviceExtensionNamesSize, nullptr));
+        CHECK_XRCMD(pfnGetVulkanDeviceExtensionsKHR(instance, systemId, 0, &deviceExtensionNamesSize, nullptr));
         std::vector<char> deviceExtensionNames(deviceExtensionNamesSize);
-        CHECK_XRCMD(xrGetVulkanDeviceExtensionsKHR(instance, systemId, deviceExtensionNamesSize, &deviceExtensionNamesSize,
-                                                   &deviceExtensionNames[0]));
+        CHECK_XRCMD(pfnGetVulkanDeviceExtensionsKHR(instance, systemId, deviceExtensionNamesSize, &deviceExtensionNamesSize,
+                                                    &deviceExtensionNames[0]));
         std::vector<const char*> deviceExtensions = ParseExtensionString(&deviceExtensionNames[0]);
 
         VkPhysicalDeviceFeatures features{};
@@ -1205,7 +1351,7 @@ struct VulkanGraphicsPlugin : public IGraphicsPlugin {
         deviceInfo.enabledLayerCount = 0;
         deviceInfo.ppEnabledLayerNames = nullptr;
         deviceInfo.enabledExtensionCount = (uint32_t)deviceExtensions.size();
-        deviceInfo.ppEnabledExtensionNames = deviceExtensions.size() ? &deviceExtensions[0] : nullptr;
+        deviceInfo.ppEnabledExtensionNames = deviceExtensions.empty() ? nullptr : deviceExtensions.data();
         deviceInfo.pEnabledFeatures = &features;
 
         CHECK_VKCMD(vkCreateDevice(m_vkPhysicalDevice, &deviceInfo, nullptr, &m_vkDevice));
@@ -1292,14 +1438,14 @@ struct VulkanGraphicsPlugin : public IGraphicsPlugin {
     }
 
     int64_t SelectColorSwapchainFormat(const std::vector<int64_t>& runtimeFormats) const override {
-        // List of supported color swapchain formats, in priority order.
+        // List of supported color swapchain formats.
         constexpr int64_t SupportedColorSwapchainFormats[] = {VK_FORMAT_B8G8R8A8_SRGB, VK_FORMAT_R8G8B8A8_SRGB,
                                                               VK_FORMAT_B8G8R8A8_UNORM, VK_FORMAT_R8G8B8A8_UNORM};
 
         auto swapchainFormatIt =
-            std::find_first_of(std::begin(SupportedColorSwapchainFormats), std::end(SupportedColorSwapchainFormats),
-                               runtimeFormats.begin(), runtimeFormats.end());
-        if (swapchainFormatIt == std::end(SupportedColorSwapchainFormats)) {
+            std::find_first_of(runtimeFormats.begin(), runtimeFormats.end(), std::begin(SupportedColorSwapchainFormats),
+                               std::end(SupportedColorSwapchainFormats));
+        if (swapchainFormatIt == runtimeFormats.end()) {
             THROW("No runtime swapchain format supported for color swapchain");
         }
 
@@ -1315,7 +1461,7 @@ struct VulkanGraphicsPlugin : public IGraphicsPlugin {
         // Allocate and initialize the buffer of image structs (must be sequential in memory for xrEnumerateSwapchainImages).
         // Return back an array of pointers to each swapchain image struct so the consumer doesn't need to know the type/size.
         // Keep the buffer alive by adding it into the list of buffers.
-        m_swapchainImageContexts.push_back({});
+        m_swapchainImageContexts.emplace_back();
         SwapchainImageContext& swapchainImageContext = m_swapchainImageContexts.back();
 
         std::vector<XrSwapchainImageBaseHeader*> bases = swapchainImageContext.Create(
@@ -1416,7 +1562,6 @@ struct VulkanGraphicsPlugin : public IGraphicsPlugin {
     uint32_t m_queueFamilyIndex = 0;
     VkQueue m_vkQueue{VK_NULL_HANDLE};
     VkSemaphore m_vkDrawDone{VK_NULL_HANDLE};
-    uint32_t m_vkDeviceLocalHeap = 0;
 
     MemoryAllocator m_memAllocator{};
     ShaderProgram m_shaderProgram{};
@@ -1438,62 +1583,58 @@ struct VulkanGraphicsPlugin : public IGraphicsPlugin {
         std::string objName;
         Log::Level level = Log::Level::Error;
 
-        if (flags & VK_DEBUG_REPORT_DEBUG_BIT_EXT) {
+        if ((flags & VK_DEBUG_REPORT_DEBUG_BIT_EXT) != 0u) {
             flagNames += "DEBUG:";
             level = Log::Level::Verbose;
         }
-        if (flags & VK_DEBUG_REPORT_INFORMATION_BIT_EXT) {
+        if ((flags & VK_DEBUG_REPORT_INFORMATION_BIT_EXT) != 0u) {
             flagNames += "INFO:";
             level = Log::Level::Info;
         }
-        if (flags & VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT) {
+        if ((flags & VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT) != 0u) {
             flagNames += "PERF:";
             level = Log::Level::Warning;
         }
-        if (flags & VK_DEBUG_REPORT_WARNING_BIT_EXT) {
+        if ((flags & VK_DEBUG_REPORT_WARNING_BIT_EXT) != 0u) {
             flagNames += "WARN:";
             level = Log::Level::Warning;
         }
-        if (flags & VK_DEBUG_REPORT_ERROR_BIT_EXT) {
+        if ((flags & VK_DEBUG_REPORT_ERROR_BIT_EXT) != 0u) {
             flagNames += "ERROR:";
             level = Log::Level::Error;
         }
 
-#define LIST_OBJECT_TYPES(_)        \
-    _(UNKNOWN)                      \
-    _(INSTANCE)                     \
-    _(PHYSICAL_DEVICE)              \
-    _(DEVICE)                       \
-    _(QUEUE)                        \
-    _(SEMAPHORE)                    \
-    _(COMMAND_BUFFER)               \
-    _(FENCE)                        \
-    _(DEVICE_MEMORY)                \
-    _(BUFFER)                       \
-    _(IMAGE)                        \
-    _(EVENT)                        \
-    _(QUERY_POOL)                   \
-    _(BUFFER_VIEW)                  \
-    _(IMAGE_VIEW)                   \
-    _(SHADER_MODULE)                \
-    _(PIPELINE_CACHE)               \
-    _(PIPELINE_LAYOUT)              \
-    _(RENDER_PASS)                  \
-    _(PIPELINE)                     \
-    _(DESCRIPTOR_SET_LAYOUT)        \
-    _(SAMPLER)                      \
-    _(DESCRIPTOR_POOL)              \
-    _(DESCRIPTOR_SET)               \
-    _(FRAMEBUFFER)                  \
-    _(COMMAND_POOL)                 \
-    _(SURFACE_KHR)                  \
-    _(SWAPCHAIN_KHR)                \
-    _(DEBUG_REPORT_CALLBACK_EXT)    \
-    _(DISPLAY_KHR)                  \
-    _(DISPLAY_MODE_KHR)             \
-    _(OBJECT_TABLE_NVX)             \
-    _(INDIRECT_COMMANDS_LAYOUT_NVX) \
-    _(DESCRIPTOR_UPDATE_TEMPLATE_KHR)
+#define LIST_OBJECT_TYPES(_) \
+    _(UNKNOWN)               \
+    _(INSTANCE)              \
+    _(PHYSICAL_DEVICE)       \
+    _(DEVICE)                \
+    _(QUEUE)                 \
+    _(SEMAPHORE)             \
+    _(COMMAND_BUFFER)        \
+    _(FENCE)                 \
+    _(DEVICE_MEMORY)         \
+    _(BUFFER)                \
+    _(IMAGE)                 \
+    _(EVENT)                 \
+    _(QUERY_POOL)            \
+    _(BUFFER_VIEW)           \
+    _(IMAGE_VIEW)            \
+    _(SHADER_MODULE)         \
+    _(PIPELINE_CACHE)        \
+    _(PIPELINE_LAYOUT)       \
+    _(RENDER_PASS)           \
+    _(PIPELINE)              \
+    _(DESCRIPTOR_SET_LAYOUT) \
+    _(SAMPLER)               \
+    _(DESCRIPTOR_POOL)       \
+    _(DESCRIPTOR_SET)        \
+    _(FRAMEBUFFER)           \
+    _(COMMAND_POOL)          \
+    _(SURFACE_KHR)           \
+    _(SWAPCHAIN_KHR)         \
+    _(DISPLAY_KHR)           \
+    _(DISPLAY_MODE_KHR)
 
         switch (objectType) {
             default:
@@ -1502,6 +1643,13 @@ struct VulkanGraphicsPlugin : public IGraphicsPlugin {
         objName = #name;                           \
         break;
                 LIST_OBJECT_TYPES(MK_OBJECT_TYPE_CASE)
+
+#if VK_HEADER_VERSION >= 46
+                MK_OBJECT_TYPE_CASE(DESCRIPTOR_UPDATE_TEMPLATE_KHR)
+#endif
+#if VK_HEADER_VERSION >= 70
+                MK_OBJECT_TYPE_CASE(DEBUG_REPORT_CALLBACK_EXT)
+#endif
         }
 
         if ((objectType == VK_DEBUG_REPORT_OBJECT_TYPE_INSTANCE_EXT) && (strcmp(pLayerPrefix, "Loader Message") == 0) &&
@@ -1510,10 +1658,10 @@ struct VulkanGraphicsPlugin : public IGraphicsPlugin {
         }
 
         Log::Write(level, Fmt("%s (%s 0x%llx) [%s] %s", flagNames.c_str(), objName.c_str(), object, pLayerPrefix, pMessage));
-        if (flags & VK_DEBUG_REPORT_ERROR_BIT_EXT) {
+        if ((flags & VK_DEBUG_REPORT_ERROR_BIT_EXT) != 0u) {
             return VK_FALSE;
         }
-        if (flags & VK_DEBUG_REPORT_WARNING_BIT_EXT) {
+        if ((flags & VK_DEBUG_REPORT_WARNING_BIT_EXT) != 0u) {
             return VK_FALSE;
         }
         return VK_FALSE;
@@ -1531,7 +1679,7 @@ struct VulkanGraphicsPlugin : public IGraphicsPlugin {
 
 std::shared_ptr<IGraphicsPlugin> CreateGraphicsPlugin_Vulkan(const std::shared_ptr<Options>& options,
                                                              std::shared_ptr<IPlatformPlugin> platformPlugin) {
-    return std::make_shared<VulkanGraphicsPlugin>(options, platformPlugin);
+    return std::make_shared<VulkanGraphicsPlugin>(options, std::move(platformPlugin));
 }
 
 #endif  // XR_USE_GRAPHICS_API_VULKAN

@@ -1,5 +1,7 @@
 # Copyright (c) 2017 The Khronos Group Inc.
 #
+# SPDX-License-Identifier: Apache-2.0
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -18,30 +20,42 @@
 add_executable(loader_test
     loader_test_utils.cpp
     loader_test.cpp
-    ${CMAKE_SOURCE_DIR}/src/common/gfxwrapper_opengl.c
-    ${CMAKE_SOURCE_DIR}/src/common/filesystem_utils.cpp
-    ${WAYLAND_PROTOCOL_SRC}
 )
-add_dependencies(loader_test
-    generate_openxr_header
-)
-target_include_directories(loader_test
+openxr_add_filesystem_utils(loader_test)
+set_target_properties(loader_test PROPERTIES FOLDER ${TESTS_FOLDER})
+target_link_libraries(loader_test PRIVATE openxr_loader)
+
+add_dependencies(loader_test generate_openxr_header)
+if(TARGET openxr-gfxwrapper)
+    target_link_libraries(loader_test PRIVATE openxr-gfxwrapper)
+endif()
+target_include_directories(
+    loader_test
     PRIVATE ${CMAKE_CURRENT_BINARY_DIR}
-    PRIVATE ${CMAKE_BINARY_DIR}/include
-    PRIVATE ${CMAKE_SOURCE_DIR}/src/common
-    PRIVATE ${CMAKE_SOURCE_DIR}/external/include
-    ${VulkanHeaders_INCLUDE_DIRS}
+    PRIVATE ${PROJECT_BINARY_DIR}/src
+    PRIVATE ${PROJECT_BINARY_DIR}/include
+    PRIVATE ${PROJECT_SOURCE_DIR}/src/common
+    PRIVATE ${PROJECT_SOURCE_DIR}/external/include
 )
+if(VulkanHeaders_FOUND)
+    target_include_directories(loader_test
+        PRIVATE ${VulkanHeaders_INCLUDE_DIRS}
+    )
+endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
-    target_compile_definitions(loader_test PRIVATE _CRT_SECURE_NO_WARNINGS)
-    target_compile_options(loader_test PRIVATE /Zc:wchar_t /Zc:forScope /W4 /WX)
-    target_link_libraries(loader_test openxr_loader-${MAJOR}_${MINOR} opengl32)
+    if(MSVC)
+        target_compile_definitions(loader_test PRIVATE _CRT_SECURE_NO_WARNINGS)
+        target_compile_options(loader_test PRIVATE /Zc:wchar_t /Zc:forScope /W4 /WX)
+    endif()
+    if(D3D_D3D11_FOUND)
+        target_link_libraries(loader_test PRIVATE ${D3D_D3D11_LIBRARY})
+    endif()
+
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-    target_compile_options(loader_test PRIVATE -Wall -Wno-unused-function -Wno-format-truncation)
-    target_link_libraries(loader_test -lstdc++fs openxr_loader m -lpthread GL ${XLIB_LIBRARIES} ${XCB_LIBRARIES} ${WAYLAND_LIBRARIES})
+    # No special options needed.
 else()
-    MESSAGE(FATAL_ERROR "Unsupported Platform")
+    message(FATAL_ERROR "Unsupported Platform")
 endif()
 
 file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/resources)

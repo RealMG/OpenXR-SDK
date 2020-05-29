@@ -2,6 +2,8 @@
 #
 # Copyright (c) 2018-2019 Collabora, Ltd.
 #
+# SPDX-License-Identifier: Apache-2.0
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -20,12 +22,8 @@
 #               that depend on the API being used.
 
 import pytest
-
-from check_spec_links import MacroChecker, MessageId, makeMacroChecker
-from spec_tools.console_printer import ConsolePrinter
-from spec_tools.macro_checker_file import shouldEntityBeText
-from test_check_spec_links import (CheckerWrapper, allMessages,
-                                   loneMsgReplacement, message, msgReplacement)
+from check_spec_links import MessageId, makeMacroChecker
+from test_check_spec_links import CheckerWrapper, allMessages, msgReplacement
 
 
 @pytest.fixture

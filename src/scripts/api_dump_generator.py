@@ -1,8 +1,10 @@
 #!/usr/bin/python3 -i
 #
-# Copyright (c) 2017-2019 The Khronos Group Inc.
+# Copyright (c) 2017-2020 The Khronos Group Inc.
 # Copyright (c) 2017-2019 Valve Corporation
 # Copyright (c) 2017-2019 LunarG, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -22,69 +24,21 @@
 #               automatic_source_generator.py class to produce the
 #               generated source code for the API Dump layer.
 
-import os
-import re
-import sys
-from automatic_source_generator import *
-from collections import namedtuple
+from automatic_source_generator import (AutomaticSourceOutputGenerator,
+                                        undecorate)
+from generator import write
 
 # The following commands should not be generated for the layer
-MANUALLY_DEFINED_IN_LAYER = [
+MANUALLY_DEFINED_IN_LAYER = set((
     'xrCreateInstance',
     'xrDestroyInstance',
-]
-
-DONT_GEN_IN_LAYER = [
-    'xrEnumerateApiLayerProperties',
-    'xrEnumerateInstanceExtensionProperties',
-]
-
-# ApiDumpGeneratorOptions - subclass of AutomaticSourceGeneratorOptions.
-
-
-class ApiDumpGeneratorOptions(AutomaticSourceGeneratorOptions):
-    def __init__(self,
-                 filename=None,
-                 directory='.',
-                 apiname=None,
-                 profile=None,
-                 versions='.*',
-                 emitversions='.*',
-                 defaultExtensions=None,
-                 addExtensions=None,
-                 removeExtensions=None,
-                 emitExtensions=None,
-                 sortProcedure=regSortFeatures,
-                 prefixText="",
-                 genFuncPointers=True,
-                 protectFile=True,
-                 protectFeature=True,
-                 protectProto=None,
-                 protectProtoStr=None,
-                 apicall='',
-                 apientry='',
-                 apientryp='',
-                 indentFuncProto=True,
-                 indentFuncPointer=False,
-                 alignFuncParam=0,
-                 genEnumBeginEndRange=False):
-        AutomaticSourceGeneratorOptions.__init__(self, filename, directory, apiname, profile,
-                                                 versions, emitversions, defaultExtensions,
-                                                 addExtensions, removeExtensions,
-                                                 emitExtensions, sortProcedure)
+))
 
 # ApiDumpOutputGenerator - subclass of AutomaticSourceOutputGenerator.
 
 
 class ApiDumpOutputGenerator(AutomaticSourceOutputGenerator):
     """Generate API Dump layer source using XML element attributes from registry"""
-
-    def __init__(self,
-                 errFile=sys.stderr,
-                 warnFile=sys.stderr,
-                 diagFile=sys.stdout):
-        AutomaticSourceOutputGenerator.__init__(
-            self, errFile, warnFile, diagFile)
 
     # Override the base class header warning so the comment indicates this file.
     #   self            the AutomaticSourceOutputGenerator object
@@ -104,20 +58,24 @@ class ApiDumpOutputGenerator(AutomaticSourceOutputGenerator):
         preamble = ''
         if self.genOpts.filename == 'xr_generated_api_dump.hpp':
             preamble += '#pragma once\n\n'
-            preamble += '#include <string>\n'
-            preamble += '#include <vector>\n'
-            preamble += '#include <tuple>\n\n'
             preamble += '#include "api_layer_platform_defines.h"\n'
             preamble += '#include <openxr/openxr.h>\n'
             preamble += '#include <openxr/openxr_platform.h>\n\n'
-            preamble += '#include "xr_generated_dispatch_table.h"\n'
+            preamble += '#include <mutex>\n'
+            preamble += '#include <string>\n'
+            preamble += '#include <tuple>\n'
+            preamble += '#include <unordered_map>\n'
+            preamble += '#include <vector>\n\n'
+            preamble += 'struct XrGeneratedDispatchTable;\n\n'
         elif self.genOpts.filename == 'xr_generated_api_dump.cpp':
+            preamble += '#include "xr_generated_api_dump.hpp"\n'
+            preamble += '#include "xr_generated_dispatch_table.h"\n'
+            preamble += '#include "hex_and_handles.h"\n\n'
             preamble += '#include <cstring>\n'
             preamble += '#include <mutex>\n'
             preamble += '#include <sstream>\n'
             preamble += '#include <iomanip>\n'
             preamble += '#include <unordered_map>\n\n'
-            preamble += '#include "xr_generated_api_dump.hpp"\n'
         write(preamble, file=self.outFile)
 
     # Write out all the information for the appropriate file,
@@ -145,7 +103,7 @@ class ApiDumpOutputGenerator(AutomaticSourceOutputGenerator):
     def outputApiDumpExterns(self):
         externs = '\n// Externs for API dump\n'
         for handle in self.api_handles:
-            base_handle_name = handle.name[2:].lower()
+            base_handle_name = undecorate(handle.name)
             if handle.protect_value is not None:
                 externs += '#if %s\n' % handle.protect_string
             externs += 'extern std::unordered_map<%s, XrGeneratedDispatchTable*> g_%s_dispatch_map;\n' % (
@@ -200,7 +158,7 @@ class ApiDumpOutputGenerator(AutomaticSourceOutputGenerator):
     def outputApiDumpMapMutexItems(self):
         maps_mutexes = ''
         for handle in self.api_handles:
-            base_handle_name = handle.name[2:].lower()
+            base_handle_name = undecorate(handle.name)
             if handle.protect_value:
                 maps_mutexes += '#if %s\n' % handle.protect_string
             maps_mutexes += 'std::unordered_map<%s, XrGeneratedDispatchTable*> g_%s_dispatch_map;\n' % (
@@ -227,7 +185,7 @@ class ApiDumpOutputGenerator(AutomaticSourceOutputGenerator):
         maps_mutexes += 'void ApiDumpCleanUpMapsForTable(XrGeneratedDispatchTable *table) {\n'
         # Call each handle's erase utility function using the template we defined above.
         for handle in self.api_handles:
-            base_handle_name = handle.name[2:].lower()
+            base_handle_name = undecorate(handle.name)
             if handle.protect_value:
                 maps_mutexes += '#if %s\n' % handle.protect_string
             maps_mutexes += '    eraseAllTableMapElements<std::unordered_map<%s, XrGeneratedDispatchTable*>>' % handle.name
@@ -273,9 +231,9 @@ class ApiDumpOutputGenerator(AutomaticSourceOutputGenerator):
         period_pos = param_name.rfind(".")
         arrow_pos = param_name.rfind(">")
         param_name_prefix = ''
-        if (arrow_pos > period_pos):
+        if arrow_pos > period_pos:
             param_name_prefix = param_name[:arrow_pos + 1]
-        elif (period_pos > arrow_pos):
+        elif period_pos > arrow_pos:
             param_name_prefix = param_name[:period_pos + 1]
         return param_name_prefix
 
@@ -309,9 +267,10 @@ class ApiDumpOutputGenerator(AutomaticSourceOutputGenerator):
         use_stream = False
         pointer_count = member_param.pointer_count
         is_array = member_param.is_array
+        is_external = self.isExternalGraphicsApiHandle(base_type)
 
         # If this is an array defined by a pointer, we need to drop the pointer count for it
-        if is_array and not member_param.is_static_array and len(member_param.pointer_count_var) > 0:
+        if is_array and not member_param.is_static_array and member_param.pointer_count_var:
             pointer_count = pointer_count - 1
 
         full_type = cdecl[0:cdecl.rfind(' ')].strip()
@@ -323,24 +282,24 @@ class ApiDumpOutputGenerator(AutomaticSourceOutputGenerator):
         # NOTE: Structures/Unions should be handled in other utility calls.  This
         #       is only encountered if it can't extract the information through
         #       those if it's a type that could be expanded.
-        can_dereference = member_param.is_const or not pointer_count > 0
+        can_dereference = (member_param.is_const or not pointer_count > 0) and not is_external
         if not allow_deref:
             can_dereference = False
 
         # We can't dereference a void, so don't even try.
         # NOTE: The 'next' chain is actually handled elsewhere.
-        if 'void' == base_type:
+        if base_type == 'void':
             can_dereference = False
 
         # Is this one of the standard types?
-        if ('char' == base_type[0:4].lower() or 'float' == base_type[0:5].lower() or
-            'double' == base_type[0:6].lower() or 'unsigned ' in base_type.lower() or
+        if (base_type[0:4].lower() == 'char' or base_type[0:5].lower() == 'float' or
+            base_type[0:6].lower() == 'double' or 'unsigned ' in base_type.lower() or
                 'uint' in base_type.lower()):
             is_standard_type = True
             # Characters are a special case because we can write them directly out.  As long as
             # they're a character array or pointer.  If they're a pointer, just drop one from it
             # since we don't want to write the pointer, but the contents of it
-            if 'char' == base_type[0:4].lower():
+            if base_type[0:4].lower() == 'char':
                 is_char = True
                 if not can_dereference or ((is_array and pointer_count > 0) or pointer_count > 1):
                     use_stream = True
@@ -353,7 +312,7 @@ class ApiDumpOutputGenerator(AutomaticSourceOutputGenerator):
 
         # If this is a pointer and not a character, or it's a handle, we also want to
         # use a stream.  This is because we can output hex values through a stream.
-        if (self.isHandle(base_type) or self.isExternalGraphicsApiHandle(base_type) or
+        if (self.isHandle(base_type) or is_external or
                 ((is_array or pointer_count > 0) and not is_char)):
             use_stream = True
 
@@ -409,8 +368,8 @@ class ApiDumpOutputGenerator(AutomaticSourceOutputGenerator):
             write_string += self.writeIndent(indent)
             write_string += 'oss_%s << std::nouppercase;\n' % int_short_param_name
             write_string += self.writeIndent(indent)
-            write_string += 'contents.push_back(std::make_tuple("%s", %s' % (full_type, description)
-            write_string += ', oss_%s.str()));\n' % int_short_param_name
+            write_string += 'contents.emplace_back("%s", %s' % (full_type, description)
+            write_string += ', oss_%s.str());\n' % int_short_param_name
             indent = indent - 1
             write_string += self.writeIndent(indent)
             write_string += '}\n'
@@ -431,8 +390,8 @@ class ApiDumpOutputGenerator(AutomaticSourceOutputGenerator):
             write_string += self.writeIndent(indent)
             write_string += 'oss_%s << std::nouppercase;\n' % int_short_param_name
             write_string += self.writeIndent(indent)
-            write_string += 'contents.push_back(std::make_tuple("%s", %s' % (full_type, description)
-            write_string += ', oss_%s.str()));\n' % int_short_param_name
+            write_string += 'contents.emplace_back("%s", %s' % (full_type, description)
+            write_string += ', oss_%s.str());\n' % int_short_param_name
             indent = indent - 1
             write_string += self.writeIndent(indent)
             write_string += '}\n'
@@ -447,8 +406,30 @@ class ApiDumpOutputGenerator(AutomaticSourceOutputGenerator):
                 write_string += '*' * pointer_count
             write_string += '%s).QuadPart );\n' % full_name
             write_string += self.writeIndent(indent)
-            write_string += 'contents.push_back(std::make_tuple("%s", %s' % (full_type, description)
-            write_string += ', oss_%s.str()));\n' % int_short_param_name
+            write_string += 'contents.emplace_back("%s", %s' % (full_type, description)
+            write_string += ', oss_%s.str());\n' % int_short_param_name
+        elif base_type == 'timespec':
+            # Unbeknownst to XR, this is actually a struct.
+            write_string += self.writeIndent(indent)
+            write_string += 'std::ostringstream oss_%s;\n' % int_short_param_name
+            write_string += self.writeIndent(indent)
+            deref = '' + '*' * pointer_count
+
+            # Write whole seconds
+            write_string += 'oss_%s << (' % int_short_param_name
+            write_string += deref
+            write_string += '%s).tv_sec << ".";\n' % full_name
+
+            # Write nanoseconds as a decimal
+            write_string += self.writeIndent(indent)
+            write_string += "oss_%s << std::setw(9) << std::setfill('0') << (" % int_short_param_name
+            write_string += deref
+            write_string += '%s).tv_nsec << "s";\n' % full_name
+
+            write_string += self.writeIndent(indent)
+            write_string += 'contents.emplace_back("%s", %s' % (
+                full_type, description)
+            write_string += ', oss_%s.str());\n' % int_short_param_name
         else:
             if base_type == 'XrResult':
                 write_string += self.writeIndent(indent)
@@ -461,7 +442,7 @@ class ApiDumpOutputGenerator(AutomaticSourceOutputGenerator):
                 write_string += self.writeIndent(indent)
                 write_string += '                                   %s, %s_string);\n' % (full_name, int_short_param_name)
                 write_string += self.writeIndent(indent)
-                write_string += 'contents.push_back(std::make_tuple("%s", %s, %s_string));\n' % (full_type, description, int_short_param_name)
+                write_string += 'contents.emplace_back("%s", %s, %s_string);\n' % (full_type, description, int_short_param_name)
                 write_string += self.writeIndent(indent - 1)
                 write_string += '} else {\n'
                 write_string += self.writeIndent(indent)
@@ -476,7 +457,7 @@ class ApiDumpOutputGenerator(AutomaticSourceOutputGenerator):
                 write_string += self.writeIndent(indent)
                 write_string += '                                          %s, %s_string);\n' % (full_name, int_short_param_name)
                 write_string += self.writeIndent(indent)
-                write_string += 'contents.push_back(std::make_tuple("%s", %s, %s_string));\n' % (full_type, description, int_short_param_name)
+                write_string += 'contents.emplace_back("%s", %s, %s_string);\n' % (full_type, description, int_short_param_name)
                 write_string += self.writeIndent(indent - 1)
                 write_string += '} else {\n'
                 write_string += self.writeIndent(indent)
@@ -511,12 +492,12 @@ class ApiDumpOutputGenerator(AutomaticSourceOutputGenerator):
                     write_string += '*' * pointer_count
                 write_string += '%s);\n' % full_name
                 write_string += self.writeIndent(indent)
-                write_string += 'contents.push_back(std::make_tuple("%s", %s' % (full_type, description)
-                write_string += ', oss_%s.str()));\n' % int_short_param_name
+                write_string += 'contents.emplace_back("%s", %s' % (full_type, description)
+                write_string += ', oss_%s.str());\n' % int_short_param_name
 
             else:
                 write_string += self.writeIndent(indent)
-                write_string += 'contents.push_back(std::make_tuple("%s", %s, ' % (full_type, description)
+                write_string += 'contents.emplace_back("%s", %s, ' % (full_type, description)
                 if not is_char:
                     write_string += 'std::to_string('
                 if can_dereference:
@@ -525,9 +506,9 @@ class ApiDumpOutputGenerator(AutomaticSourceOutputGenerator):
                 # Close std::to_string
                 if not is_char:
                     write_string += ')'
-                write_string += '));\n'
+                write_string += ');\n'
 
-            if base_type == 'XrResult' or base_type == 'XrStructureType':
+            if base_type in ('XrResult', 'XrStructureType'):
                 indent = indent - 1
                 write_string += self.writeIndent(indent)
                 write_string += '}\n'
@@ -544,7 +525,7 @@ class ApiDumpOutputGenerator(AutomaticSourceOutputGenerator):
     #   has_prefix          Boolean indicates that there's an incoming C++ prefix that needs to be added to the variable.
     #   prefix_string1      The first prefix string to add prior to writing out the variable information
     #   prefix_string1      The second prefix string to add prior to writing out the variable information
-    #   expand              Boolean indicates whether or not to try to expand/derefernce the contents of this parameter
+    #   expand              Boolean indicates whether or not to try to expand/dereference the contents of this parameter
     #   indent              the number of "tabs" to space in for the resulting C+ code.
     def writeExpandedMember(self, base_type, is_pointer, pointer_count, member_param, member_param_prefix, member_param_name, has_prefix, prefix_string1, prefix_string2, expand, indent):
         member_string = ''
@@ -800,12 +781,12 @@ class ApiDumpOutputGenerator(AutomaticSourceOutputGenerator):
         base_type = self.getRawType(member_param.type)
         array_param = ''
         pointer_count = member_param.pointer_count
-        if len(member_param.array_count_var) != 0:
+        if member_param.array_count_var:
             array_param = member_param.array_count_var
             is_array = True
             if pointer_count > 0:
                 is_pointer = True
-        elif len(member_param.pointer_count_var) != 0:
+        elif member_param.pointer_count_var:
             array_param = member_param.pointer_count_var
             is_array = True
             pointer_count -= 1
@@ -903,13 +884,11 @@ class ApiDumpOutputGenerator(AutomaticSourceOutputGenerator):
             struct_union_check += '                          std::string prefix, std::string type_string, bool is_pointer,\n'
             struct_union_check += '                          std::vector<std::tuple<std::string, std::string, std::string>> &contents) {\n'
             struct_union_check += self.writeIndent(1)
+            struct_union_check += '(void)gen_dispatch_table;  // silence warning\n'
+            struct_union_check += self.writeIndent(1)
             struct_union_check += 'try {\n'
             struct_union_check += self.writeIndent(2)
-            struct_union_check += 'std::ostringstream oss_union;\n'
-            struct_union_check += self.writeIndent(2)
-            struct_union_check += 'oss_union << std::hex << reinterpret_cast<const void*>(value);\n'
-            struct_union_check += self.writeIndent(2)
-            struct_union_check += 'contents.push_back(std::make_tuple(type_string, prefix, oss_union.str()));\n'
+            struct_union_check += 'contents.emplace_back(type_string, prefix, PointerToHexString(value));\n'
             struct_union_check += self.writeIndent(2)
             struct_union_check += 'if (is_pointer) {\n'
             struct_union_check += self.writeIndent(3)
@@ -939,6 +918,8 @@ class ApiDumpOutputGenerator(AutomaticSourceOutputGenerator):
             struct_union_check += '                           std::string prefix, std::string type_string, bool is_pointer,\n'
             struct_union_check += '                           std::vector<std::tuple<std::string, std::string, std::string>> &contents) {\n'
             indent = 1
+            struct_union_check += self.writeIndent(indent)
+            struct_union_check += '(void)gen_dispatch_table;  // silence warning\n'
             struct_union_check += self.writeIndent(indent)
             struct_union_check += 'try {\n'
             indent = indent + 1
@@ -972,11 +953,7 @@ class ApiDumpOutputGenerator(AutomaticSourceOutputGenerator):
                 struct_union_check += self.writeIndent(indent)
                 struct_union_check += '// Fallback path - Just output generic information about the base struct\n'
             struct_union_check += self.writeIndent(indent)
-            struct_union_check += 'std::ostringstream oss_struct;\n'
-            struct_union_check += self.writeIndent(indent)
-            struct_union_check += 'oss_struct << std::hex << reinterpret_cast<const void*>(value);\n'
-            struct_union_check += self.writeIndent(indent)
-            struct_union_check += 'contents.push_back(std::make_tuple(type_string, prefix, oss_struct.str()));\n'
+            struct_union_check += 'contents.emplace_back(type_string, prefix, PointerToHexString(value));\n'
             struct_union_check += self.writeIndent(indent)
             struct_union_check += 'if (is_pointer) {\n'
             struct_union_check += self.writeIndent(indent + 1)
@@ -1004,10 +981,10 @@ class ApiDumpOutputGenerator(AutomaticSourceOutputGenerator):
             struct_union_check += '\n'
         struct_union_check += 'bool ApiDumpDecodeNextChain(XrGeneratedDispatchTable* gen_dispatch_table, const void* value, std::string prefix,\n'
         struct_union_check += '                            std::vector<std::tuple<std::string, std::string, std::string>> &contents) {\n'
+        struct_union_check += self.writeIndent(1)
+        struct_union_check += '(void)gen_dispatch_table;  // silence warning\n'
         struct_union_check += '    try {\n'
-        struct_union_check += '        std::ostringstream oss_next;\n'
-        struct_union_check += '        oss_next << std::hex << reinterpret_cast<const void*>(value);\n'
-        struct_union_check += '        contents.push_back(std::make_tuple("const void *", prefix, oss_next.str()));\n'
+        struct_union_check += '        contents.emplace_back("const void *", prefix, PointerToHexString(value));\n'
         struct_union_check += '        if (nullptr == value) {\n'
         struct_union_check += '            return true;\n'
         struct_union_check += '        }\n'
@@ -1023,7 +1000,7 @@ class ApiDumpOutputGenerator(AutomaticSourceOutputGenerator):
                 for cur_value in enum_tuple.values:
                     struct_define_name = self.genXrStructureName(
                         cur_value.name)
-                    if len(struct_define_name) > 0:
+                    if struct_define_name:
                         cur_struct = self.getStruct(struct_define_name)
                         if cur_struct.protect_value:
                             struct_union_check += '#if %s\n' % cur_struct.protect_string
@@ -1074,7 +1051,7 @@ class ApiDumpOutputGenerator(AutomaticSourceOutputGenerator):
                         generated_commands += '\n// ---- %s extension commands\n' % cur_cmd.ext_name
                     cur_extension_name = cur_cmd.ext_name
 
-                if cur_cmd.name in DONT_GEN_IN_LAYER or cur_cmd.name in MANUALLY_DEFINED_IN_LAYER:
+                if cur_cmd.name in self.no_trampoline_or_terminator or cur_cmd.name in MANUALLY_DEFINED_IN_LAYER:
                     continue
 
                 # We fill in the GetInstanceProcAddr manually at the end
@@ -1100,8 +1077,7 @@ class ApiDumpOutputGenerator(AutomaticSourceOutputGenerator):
                     generated_commands += '#if %s\n' % cur_cmd.protect_string
 
                 prototype = cur_cmd.cdecl.replace(" xr", " ApiDumpLayerXr")
-                prototype = prototype.replace("XRAPI_ATTR ", "")
-                prototype = prototype.replace(" XRAPI_CALL ", " ")
+                prototype = prototype.replace(self.genOpts.apicall, "").replace(self.genOpts.apientry, "")
                 prototype = prototype.replace(";", " {\n")
                 generated_commands += prototype
 
@@ -1123,21 +1099,23 @@ class ApiDumpOutputGenerator(AutomaticSourceOutputGenerator):
                 # Before we can do that, we have to figure out what the dispatch table is
                 if cur_cmd.params[0].is_handle:
                     handle_param = cur_cmd.params[0]
-                    base_handle_name = handle_param.type[2:].lower()
+                    base_handle_name = undecorate(handle_param.type)
                     first_handle_name = self.getFirstHandleName(handle_param)
                     generated_commands += '        std::unique_lock<std::mutex> mlock(g_%s_dispatch_mutex);\n' % base_handle_name
-                    generated_commands += '        XrGeneratedDispatchTable *gen_dispatch_table = g_%s_dispatch_map[%s];\n' % (base_handle_name, first_handle_name)
-                    generated_commands += '        mlock.unlock();\n'
+                    generated_commands += '        auto map_iter = g_%s_dispatch_map.find(%s);\n' % (base_handle_name, first_handle_name)
+                    generated_commands += '        mlock.unlock();\n\n'
+                    generated_commands += '        if (map_iter == g_%s_dispatch_map.end()) return XR_ERROR_VALIDATION_FAILURE;\n' % base_handle_name
+                    generated_commands += '        XrGeneratedDispatchTable *gen_dispatch_table = map_iter->second;\n'
                 else:
                     generated_commands += self.printCodeGenErrorMessage(
                         'Command %s does not have an OpenXR Object handle as the first parameter.' % cur_cmd.name)
 
                 # Print out a tuple for the header
                 if has_return:
-                    generated_commands += '        contents.push_back(std::make_tuple("%s", "%s", ""));\n' % (
+                    generated_commands += '        contents.emplace_back("%s", "%s", "");\n' % (
                         cur_cmd.return_type.text, cur_cmd.name)
                 else:
-                    generated_commands += '        contents.push_back(std::make_tuple("void", "%s", ""));\n' % cur_cmd.name
+                    generated_commands += '        contents.emplace_back("void", "%s", "");\n' % cur_cmd.name
                 # Print out information for each parameter
                 for param in cur_cmd.params:
                     can_expand = False
@@ -1149,7 +1127,7 @@ class ApiDumpOutputGenerator(AutomaticSourceOutputGenerator):
                         param, False, can_expand, 2)
 
                 # Now record the information
-                generated_commands += '        ApiDumpLayerRecordContent(contents);\n'
+                generated_commands += '        ApiDumpLayerRecordContent(contents);\n\n'
 
                 # Call down, looking for the returned result if required.
                 generated_commands += '        '
@@ -1171,7 +1149,7 @@ class ApiDumpOutputGenerator(AutomaticSourceOutputGenerator):
                 # for the dispatch table from the unordered_map
                 second_base_handle_name = ''
                 if cur_cmd.params[-1].is_handle and (is_create or is_destroy):
-                    second_base_handle_name = cur_cmd.params[-1].type[2:].lower()
+                    second_base_handle_name = undecorate(cur_cmd.params[-1].type)
                     if is_create:
                         generated_commands += '        if (XR_SUCCESS == result && nullptr != %s) {\n' % cur_cmd.params[-1].name
                         generated_commands += '            auto exists = g_%s_dispatch_map.find(*%s);\n' % (
@@ -1215,15 +1193,14 @@ class ApiDumpOutputGenerator(AutomaticSourceOutputGenerator):
         generated_commands += '        std::string func_name = name;\n\n'
         generated_commands += '        // Generate output for this command\n'
         generated_commands += '        std::vector<std::tuple<std::string, std::string, std::string>> contents;\n'
-        generated_commands += '        contents.push_back(std::make_tuple("XrResult", "xrGetInstanceProcAddr", ""));\n'
-        generated_commands += '        std::ostringstream oss_instance;\n'
-        generated_commands += '        oss_instance << std::hex << reinterpret_cast<const void*>(instance);\n'
-        generated_commands += '        contents.push_back(std::make_tuple("XrInstance", "instance", oss_instance.str()));\n'
-        generated_commands += '        contents.push_back(std::make_tuple("const char*", "name", name));\n'
-        generated_commands += '        std::ostringstream oss_function;\n'
-        generated_commands += '        oss_function << std::hex << reinterpret_cast<const void*>(function);\n'
-        generated_commands += '        contents.push_back(std::make_tuple("PFN_xrVoidFunction*", "function", oss_function.str()));\n'
+        generated_commands += '        contents.emplace_back("XrResult", "xrGetInstanceProcAddr", "");\n'
+        generated_commands += '        contents.emplace_back("XrInstance", "instance", HandleToHexString(instance));\n'
+        generated_commands += '        contents.emplace_back("const char*", "name", name);\n'
+        generated_commands += '        contents.emplace_back("PFN_xrVoidFunction*", "function", PointerToHexString(reinterpret_cast<const void*>(function)));\n'
         generated_commands += '        ApiDumpLayerRecordContent(contents);\n'
+        
+        generated_commands += '        // Set the function pointer to NULL so that the fall-through below actually works:\n'
+        generated_commands += '        *function = nullptr;\n\n'
 
         count = 0
         for x in range(0, 2):
@@ -1241,7 +1218,7 @@ class ApiDumpOutputGenerator(AutomaticSourceOutputGenerator):
                         generated_commands += '\n        // ---- %s extension commands\n' % cur_cmd.ext_name
                     cur_extension_name = cur_cmd.ext_name
 
-                if cur_cmd.name in DONT_GEN_IN_LAYER:
+                if cur_cmd.name in self.no_trampoline_or_terminator:
                     continue
 
                 has_return = False
@@ -1272,8 +1249,12 @@ class ApiDumpOutputGenerator(AutomaticSourceOutputGenerator):
         generated_commands += '        }\n\n'
         generated_commands += '        // We have not found it, so pass it down to the next layer/runtime\n'
         generated_commands += '        std::unique_lock<std::mutex> mlock(g_instance_dispatch_mutex);\n'
-        generated_commands += '        XrGeneratedDispatchTable *gen_dispatch_table = g_instance_dispatch_map[instance];\n'
+        generated_commands += '        auto map_iter = g_instance_dispatch_map.find(instance);\n'
         generated_commands += '        mlock.unlock();\n\n'
+        generated_commands += '        if (map_iter == g_instance_dispatch_map.end()) {\n'
+        generated_commands += '            return XR_ERROR_HANDLE_INVALID;\n'
+        generated_commands += '        }\n\n'
+        generated_commands += '        XrGeneratedDispatchTable *gen_dispatch_table = map_iter->second;\n'
         generated_commands += '        if (nullptr == gen_dispatch_table) {\n'
         generated_commands += '            return XR_ERROR_HANDLE_INVALID;\n'
         generated_commands += '        }\n\n'

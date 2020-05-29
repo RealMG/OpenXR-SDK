@@ -1,6 +1,8 @@
-#!/usr/bin/python3
+#!/usr/bin/env python3
 #
 # Copyright (c) 2018-2019 Collabora, Ltd.
+#
+# SPDX-License-Identifier: Apache-2.0
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -32,16 +34,16 @@ from spec_tools.shared import MessageId
 ###
 # "Configuration" constants
 
-EXTRA_DEFINES = ['XRAPI_ATTR', 'XRAPI_CALL', 'XRAPI_PTR', 'XR_NO_STDINT_H']
+EXTRA_DEFINES = ('XRAPI_ATTR', 'XRAPI_CALL', 'XRAPI_PTR', 'XR_NO_STDINT_H')
 
 # These are marked with the code: macro
-SYSTEM_TYPES = ['void', 'char', 'float', 'size_t', 'uintptr_t',
-                'int8_t', 'uint8_t',
-                'int32_t', 'uint32_t',
-                'int64_t', 'uint64_t']
+SYSTEM_TYPES = set(('void', 'char', 'float', 'size_t', 'uintptr_t',
+                    'int8_t', 'uint8_t',
+                    'int32_t', 'uint32_t',
+                    'int64_t', 'uint64_t'))
 
 ROOT = Path(__file__).resolve().parent.parent.parent
-DEFAULT_DISABLED_MESSAGES = set([MessageId.REFPAGE_MISSING])
+DEFAULT_DISABLED_MESSAGES = set((MessageId.REFPAGE_MISSING,))
 
 CWD = Path('.').resolve()
 
@@ -70,7 +72,7 @@ class XREntityDatabase(EntityDatabase):
         # #Not mentioned in the style guide.
         # TODO: What about flag wildcards? There are a few such uses...
 
-        self.addMacro('basetype', ['basetypes'], link=True)
+        self.addMacro('basetype', ('basetypes',), link=True)
 
     def populateEntities(self):
         # These are not mentioned in the XML
@@ -162,7 +164,8 @@ if __name__ == '__main__':
         DEFAULT_DISABLED_MESSAGES)
 
     all_docs = sorted((str(fn)
-                       for fn in (ROOT / 'specification/sources/').glob('**/*.adoc')))
+                       for fn in (ROOT / 'specification/sources/').glob('**/*.adoc')
+                       if "styleguide" not in str(fn)))
 
     checkerMain(default_enabled_messages, makeMacroChecker,
                 all_docs, available_messages=available_messages)
